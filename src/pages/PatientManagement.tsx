@@ -145,11 +145,21 @@ const PatientManagement = () => {
     }
   }, [campId, toast]);
 
-  useEffect(() => {
-    if (campId) {
-      fetchPatients();
-    }
-  }, [campId, fetchPatients]);
+
+  const [territoryPrefix, setTerritoryPrefix] = useState("");
+
+useEffect(() => {
+  const stored = localStorage.getItem("vitaminDUser");
+  console.log("Stored User:", stored);
+  const currentUser = stored ? JSON.parse(stored) : null;
+  const prefix = currentUser?.territory?.slice(0, 3) ?? "";
+  setTerritoryPrefix(prefix);
+  console.log("Territory Prefix:", prefix);
+
+  if (campId) {
+    fetchPatients();
+  }
+}, [campId, fetchPatients]);
 
   const handleAddPatient = useCallback(
     async (e: React.FormEvent) => {
@@ -404,50 +414,88 @@ const PatientManagement = () => {
   }, [patients]);
 
   const handleDone = useCallback(
-    async () => {
-      try {
-        const { error: updateError } = await supabase
-          .from("camps")
-          .update({
-            total_patients: summaryForm.total_patients,
-            adequate_patients: summaryForm.adequate_patients,
-            inadequate_patients: summaryForm.inadequate_patients,
-            rx_generated: Number(summaryForm.rx_generated) || null,
-            units_sold: Number(summaryForm.units_sold) || null,
-            deksel_nano_syrup: Number(summaryForm.deksel_nano_syrup) || null,
-            deksel_2k_syrup: Number(summaryForm.deksel_2k_syrup) || null,
-            deksel_neo_syrup: Number(summaryForm.deksel_neo_syrup) || null,
-            status: "completed",
-          })
-          .eq("id", campId);
+  async () => {
+    // ---- VALIDATION START ----
+    const isEmpty = (v: any) =>
+      v === undefined || v === null || v === "" || Number(v) <= 0;
 
-        if (updateError) throw updateError;
+    // For MAX: require units_sold, deksel_2k_syrup, deksel_neo_syrup
+    if (territoryPrefix === "MAX") {
+      if (
+        isEmpty(summaryForm.units_sold) ||
+        isEmpty(summaryForm.deksel_2k_syrup) ||
+        isEmpty(summaryForm.deksel_neo_syrup)
+      ) {
+        toast({
+          title: "Missing sales data",
+          description:
+            "Please fill Deksel Nano 60K, Deksel 2K Spray and Deksel 1K Spray units sold before completing the camp.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
-        const { data: campData, error: campError } = await supabase
-          .from("camps")
-          .select(`
-        camp_date,
-        doctors:doctor_id (
-          name,
-          phone,
-          whatsapp_number,
-          clinic_name,
-          city
-        )
-      `)
-          .eq("id", campId)
-          .single();
+    // For NUC: require deksel_nano_syrup and deksel_neo_syrup
+    if (territoryPrefix === "NUC") {
+      if (
+        isEmpty(summaryForm.deksel_nano_syrup) ||
+        isEmpty(summaryForm.deksel_neo_syrup)
+      ) {
+        toast({
+          title: "Missing sales data",
+          description:
+            "Please fill Deksel Neo 60K and Deksel 1K Spray units sold before completing the camp.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    // ---- VALIDATION END ----
 
-        if (campError || !campData?.doctors)
-          throw new Error("Doctor details not found.");
+    try {
+      const { error: updateError } = await supabase
+        .from("camps")
+        .update({
+          total_patients: summaryForm.total_patients,
+          adequate_patients: summaryForm.adequate_patients,
+          inadequate_patients: summaryForm.inadequate_patients,
+          rx_generated: Number(summaryForm.rx_generated) || null,
+          units_sold: Number(summaryForm.units_sold) || null,
+          deksel_nano_syrup: Number(summaryForm.deksel_nano_syrup) || null,
+          deksel_2k_syrup: Number(summaryForm.deksel_2k_syrup) || null,
+          deksel_neo_syrup: Number(summaryForm.deksel_neo_syrup) || null,
+          status: "completed",
+        })
+        .eq("id", campId);
 
-        const doctor = campData.doctors;
-        const contactNumber = doctor.whatsapp_number || doctor.phone;
-        const formattedPhone = contactNumber.startsWith("+")
-          ? contactNumber
-          : `+91${contactNumber}`;
+      if (updateError) throw updateError;
 
-        const message = `
+      const { data: campData, error: campError } = await supabase
+        .from("camps")
+        .select(`
+          camp_date,
+          doctors:doctor_id (
+            name,
+            phone,
+            whatsapp_number,
+            clinic_name,
+            city
+          )
+        `)
+        .eq("id", campId)
+        .single();
+
+      if (campError || !campData?.doctors)
+        throw new Error("Doctor details not found.");
+
+      const doctor = campData.doctors;
+      const contactNumber = doctor.whatsapp_number || doctor.phone;
+      const formattedPhone = contactNumber.startsWith("+")
+        ? contactNumber
+        : `+91${contactNumber}`;
+
+      const message = `
 Dear Dr. ${doctor.name},
 
 Please find below the summary of today’s Vitamin D Screening Camp conducted at your clinic:
@@ -461,27 +509,31 @@ Team Pulse Pharmaceuticals
 Your Partner in managing Vitamin D Deficiency
 `.trim();
 
-        const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
-        window.open(waUrl, "_blank");
+      const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(
+        message
+      )}`;
+      window.open(waUrl, "_blank");
 
-        toast({
-          title: "Camp Completed",
-          description: "Summary and sales data saved, message sent to doctor.",
-        });
+      toast({
+        title: "Camp Completed",
+        description: "Summary and sales data saved, message sent to doctor.",
+      });
 
-        setShowSummaryDialog(false);
-        navigate("/");
-      } catch (err: unknown) {
-        const errorMessage = err instanceof Error ? err.message : "Failed to complete camp";
-        toast({
-          title: "Error completing camp",
-          description: errorMessage,
-          variant: "destructive",
-        });
-      }
-    },
-    [summaryForm, campId, toast, navigate]
-  );
+      setShowSummaryDialog(false);
+      navigate("/");
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to complete camp";
+      toast({
+        title: "Error completing camp",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  },
+  [summaryForm, campId, toast, navigate, territoryPrefix]
+);
+
 
   const sendSummaryToDoctor = useCallback(
     async () => {
@@ -1537,45 +1589,54 @@ appropriate treatment.
               />
             </div>
 
-            <div>
-              <Label>No. of Units Sold(Deksel Nano 60K)</Label>
-              <Input
-                type="number"
-                value={summaryForm.units_sold}
-                onChange={(e) =>
-                  setSummaryForm({ ...summaryForm, units_sold: e.target.value })
-                }
-              />
-            </div>
+        {territoryPrefix === "MAX" && (
+  <div>
+    <Label>No. of Units Sold (Deksel Nano 60K)</Label>
+    <Input
+      type="number"
+      value={summaryForm.units_sold}
+      onChange={(e) =>
+        setSummaryForm({ ...summaryForm, units_sold: e.target.value })
+      }
+    />
+  </div>
+)}
+
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-              <div>
-                <Label>No. of Units Sold (Deksel Neo 60K)</Label>
-                <Input
-                  type="number"
-                  value={summaryForm.deksel_nano_syrup}
-                  onChange={(e) =>
-                    setSummaryForm({
-                      ...summaryForm,
-                      deksel_nano_syrup: e.target.value,
-                    })
-                  }
-                />
-              </div>
+            {territoryPrefix === "NUC" && (
+  <div>
+    <Label>No. of Units Sold (Deksel Neo 60K)</Label>
+    <Input
+      type="number"
+      value={summaryForm.deksel_nano_syrup}
+      onChange={(e) =>
+        setSummaryForm({
+          ...summaryForm,
+          deksel_nano_syrup: e.target.value,
+        })
+      }
+    />
+  </div>
+)}
 
-              <div>
-                <Label>No. of Units Sold (Deksel 2K Spray)</Label>
-                <Input
-                  type="number"
-                  value={summaryForm.deksel_2k_syrup}
-                  onChange={(e) =>
-                    setSummaryForm({
-                      ...summaryForm,
-                      deksel_2k_syrup: e.target.value,
-                    })
-                  }
-                />
-              </div>
+
+            {territoryPrefix === "MAX" && (
+  <div>
+    <Label>No. of Units Sold (Deksel 2K Spray)</Label>
+    <Input
+      type="number"
+      value={summaryForm.deksel_2k_syrup}
+      onChange={(e) =>
+        setSummaryForm({
+          ...summaryForm,
+          deksel_2k_syrup: e.target.value,
+        })
+      }
+    />
+  </div>
+)}
+
 
               <div>
                 <Label>No. of Units Sold (Deksel 1K Spray)</Label>
