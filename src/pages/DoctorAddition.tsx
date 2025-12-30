@@ -243,7 +243,7 @@ export function DoctorAddition({ onSuccess }: DoctorAdditionProps) {
 
           {/* Territory */}
           <div className="space-y-2">
-            <Label htmlFor="Territory">Territory</Label>
+            <Label htmlFor="Territory">Territory(all caps)</Label>
             <Input
               id="Territory"
               name="Territory"
