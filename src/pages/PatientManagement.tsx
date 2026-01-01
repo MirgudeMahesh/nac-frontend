@@ -1637,7 +1637,7 @@ appropriate treatment.
   </div>
 )}
 
-  {territoryPrefix === "NUC" && (
+
               <div>
                 <Label>No. of Units Sold (Deksel 1K Spray)</Label>
                 <Input
@@ -1651,7 +1651,6 @@ appropriate treatment.
                   }
                 />
               </div>
-              )}
             </div>
           </div>
 
