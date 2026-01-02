@@ -1635,20 +1635,20 @@ appropriate treatment.
                 </div>
               )}
 
-  {territoryPrefix === "NUC" && (
-              <div>
-                <Label>No. of Units Sold (Deksel 1K Spray)</Label>
-                <Input
-                  type="number"
-                  value={summaryForm.deksel_neo_syrup}
-                  onChange={(e) =>
-                    setSummaryForm({
-                      ...summaryForm,
-                      deksel_neo_syrup: e.target.value,
-                    })
-                  }
-                />
-              </div>
+              {territoryPrefix === "NUC" && (
+                <div>
+                  <Label>No. of Units Sold (Deksel 1K Spray)</Label>
+                  <Input
+                    type="number"
+                    value={summaryForm.deksel_neo_syrup}
+                    onChange={(e) =>
+                      setSummaryForm({
+                        ...summaryForm,
+                        deksel_neo_syrup: e.target.value,
+                      })
+                    }
+                  />
+                </div>
               )}
             </div>
           </div>
