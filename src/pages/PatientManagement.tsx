@@ -423,7 +423,6 @@ const PatientManagement = () => {
         if (
           isEmpty(summaryForm.units_sold) ||
           isEmpty(summaryForm.deksel_2k_syrup)
-          // NOTE: deksel_neo_syrup (1K Spray) is NOT required for MAX
         ) {
           toast({
             title: "Missing sales data",
@@ -459,14 +458,19 @@ const PatientManagement = () => {
             total_patients: summaryForm.total_patients,
             adequate_patients: summaryForm.adequate_patients,
             inadequate_patients: summaryForm.inadequate_patients,
-            rx_generated: summaryForm.rx_generated === "" ? null : Number(summaryForm.rx_generated),
-            units_sold: summaryForm.units_sold === "" ? null : Number(summaryForm.units_sold),
-            deksel_nano_syrup:
+            rx_generated:
+              summaryForm.rx_generated === "" ? null : Number(summaryForm.rx_generated),
+
+            // renamed DB columns (use quoted keys)
+            ['Deksel Nano 60K_']:
+              summaryForm.units_sold === "" ? null : Number(summaryForm.units_sold),
+            ['Deksel Neo 60K_']:
               summaryForm.deksel_nano_syrup === "" ? null : Number(summaryForm.deksel_nano_syrup),
             deksel_2k_syrup:
               summaryForm.deksel_2k_syrup === "" ? null : Number(summaryForm.deksel_2k_syrup),
-            deksel_neo_syrup:
+            ['Deksel 1K Spray_']:
               summaryForm.deksel_neo_syrup === "" ? null : Number(summaryForm.deksel_neo_syrup),
+
             status: "completed",
           })
           .eq("id", campId);
