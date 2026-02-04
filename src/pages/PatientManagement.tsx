@@ -122,6 +122,8 @@ const PatientManagement = () => {
     deksel_nano_syrup: "",
     deksel_2k_syrup: "",
     deksel_neo_syrup: "",
+    deksel_cd: "",
+    deksel_nd: "",
   });
 
   const [territoryPrefix, setTerritoryPrefix] = useState("");
@@ -406,6 +408,8 @@ const PatientManagement = () => {
       deksel_nano_syrup: "",
       deksel_2k_syrup: "",
       deksel_neo_syrup: "",
+      deksel_cd: "",
+      deksel_nd: "",
     });
 
     setShowSummaryDialog(true);
@@ -449,6 +453,28 @@ const PatientManagement = () => {
           return;
         }
       }
+
+      if (territoryPrefix === "IMP") {
+        if (isEmpty(summaryForm.deksel_cd)) {
+          toast({
+            title: "Missing sales data",
+            description: "Please fill Deksel CD units sold before completing the camp.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      if (territoryPrefix === "STI" || territoryPrefix === "GLST") {
+        if (isEmpty(summaryForm.deksel_nd)) {
+          toast({
+            title: "Missing sales data",
+            description: "Please fill Deksel ND units sold before completing the camp.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
       // ---- VALIDATION END ----
 
       try {
@@ -470,6 +496,10 @@ const PatientManagement = () => {
               summaryForm.deksel_2k_syrup === "" ? null : Number(summaryForm.deksel_2k_syrup),
             ['Deksel 1K Spray_']:
               summaryForm.deksel_neo_syrup === "" ? null : Number(summaryForm.deksel_neo_syrup),
+            ['Deksel CD']:
+              summaryForm.deksel_cd === "" ? null : Number(summaryForm.deksel_cd),
+            ['Deksel ND']:
+              summaryForm.deksel_nd === "" ? null : Number(summaryForm.deksel_nd),
 
             status: "completed",
           })
@@ -1450,42 +1480,42 @@ appropriate treatment.
                     patient.hypothyroidism ||
                     patient.hyperthyroidism ||
                     patient.other_comorbidity) && (
-                    <div className="mt-3 pt-3 border-t">
-                      <p className="text-xs text-muted-foreground mb-1">Comorbidities:</p>
-                      <div className="flex flex-wrap gap-1">
-                        {patient.diabetes && (
-                          <Badge variant="outline" className="text-xs">
-                            Diabetes
-                          </Badge>
-                        )}
-                        {patient.hypertension && (
-                          <Badge variant="outline" className="text-xs">
-                            Hypertension
-                          </Badge>
-                        )}
-                        {patient.hypothyroidism && (
-                          <Badge variant="outline" className="text-xs">
-                            Hypothyroidism
-                          </Badge>
-                        )}
-                        {patient.hyperthyroidism && (
-                          <Badge variant="outline" className="text-xs">
-                            Hyperthyroidism
-                          </Badge>
-                        )}
-                        {patient.pcos && (
-                          <Badge variant="outline" className="text-xs">
-                            PCOS
-                          </Badge>
-                        )}
-                        {patient.other_comorbidity && (
-                          <Badge variant="outline" className="text-xs">
-                            {patient.other_comorbidity}
-                          </Badge>
-                        )}
+                      <div className="mt-3 pt-3 border-t">
+                        <p className="text-xs text-muted-foreground mb-1">Comorbidities:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {patient.diabetes && (
+                            <Badge variant="outline" className="text-xs">
+                              Diabetes
+                            </Badge>
+                          )}
+                          {patient.hypertension && (
+                            <Badge variant="outline" className="text-xs">
+                              Hypertension
+                            </Badge>
+                          )}
+                          {patient.hypothyroidism && (
+                            <Badge variant="outline" className="text-xs">
+                              Hypothyroidism
+                            </Badge>
+                          )}
+                          {patient.hyperthyroidism && (
+                            <Badge variant="outline" className="text-xs">
+                              Hyperthyroidism
+                            </Badge>
+                          )}
+                          {patient.pcos && (
+                            <Badge variant="outline" className="text-xs">
+                              PCOS
+                            </Badge>
+                          )}
+                          {patient.other_comorbidity && (
+                            <Badge variant="outline" className="text-xs">
+                              {patient.other_comorbidity}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
                   <div className="mt-3 pt-3 border-t">
                     <Button
@@ -1649,6 +1679,38 @@ appropriate treatment.
                       setSummaryForm({
                         ...summaryForm,
                         deksel_neo_syrup: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              )}
+
+              {territoryPrefix === "IMP" && (
+                <div>
+                  <Label>No. of Units Sold (Deksel CD)</Label>
+                  <Input
+                    type="number"
+                    value={summaryForm.deksel_cd}
+                    onChange={(e) =>
+                      setSummaryForm({
+                        ...summaryForm,
+                        deksel_cd: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              )}
+
+              {(territoryPrefix === "STI" || territoryPrefix === "GLST") && (
+                <div>
+                  <Label>No. of Units Sold (Deksel ND)</Label>
+                  <Input
+                    type="number"
+                    value={summaryForm.deksel_nd}
+                    onChange={(e) =>
+                      setSummaryForm({
+                        ...summaryForm,
+                        deksel_nd: e.target.value,
                       })
                     }
                   />
