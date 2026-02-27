@@ -5,6 +5,7 @@ import { Activity } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createClient } from "@supabase/supabase-js";
+import { Base64 } from "js-base64";
 
 const EDGE_FUNCTION_URL =
   "https://jjtvugsixtauuwyyzkoc.supabase.co/functions/v1/imacx-login";
@@ -21,7 +22,7 @@ const supabase = createClient(
 
 // Encode safely for URLs
 const encodeBase64Url = (value: string) => {
-  return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return Base64.encodeURI(value);
 };
 
 // Decode safely even if padding is missing or string has newlines/spaces
@@ -38,7 +39,9 @@ const decodeBase64Url = (value: string) => {
     base64 += "=";
   }
 
-  return atob(base64);
+  // Use js-base64 to decode safely, avoiding DOMExceptions on iOS/Safari
+  // with base64 strings that have non-zero padding bits
+  return Base64.decode(base64);
 };
 
 const Auth = () => {
