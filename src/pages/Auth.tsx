@@ -12,7 +12,7 @@ const EDGE_FUNCTION_URL =
 // ✅ Initialize Supabase client
 const supabase = createClient(
   "https://jjtvugsixtauuwyyzkoc.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqdHZ1Z3NpeHRhdXV3eXl6a29jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwMzMxMTIsImV4cCI6MjA3NDYwOTExMn0.NbIzQIouOFTQfbvZVHI4TnHtBT08uct2nuMMwx6HhHc"
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqdHZ1Z3NpeHRhdXV3eXl6a29jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwMzMxMTIsImV4cCI6MjA3NDYwOTExMn0.NbIzQIouOFTQfbvZVHI4TnHtBT08uct2nuMMwx6HhHc",
 );
 
 /* =========================================================
@@ -21,18 +21,19 @@ const supabase = createClient(
 
 // Encode safely for URLs
 const encodeBase64Url = (value: string) => {
-  return btoa(value)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 };
 
-// Decode safely even if padding is missing
+// Decode safely even if padding is missing or string has newlines/spaces
 const decodeBase64Url = (value: string) => {
-  let base64 = value
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
+  // 1. Replace spaces with '+' (in case URL parser converted '+' to ' ')
+  // 2. Replace URL-safe base64 '-' and '_' with standard '+' and '/'
+  let base64 = value.replace(/ /g, "+").replace(/-/g, "+").replace(/_/g, "/");
 
+  // 3. Strip all characters that aren't valid base64 data (like whitespace, metadata, or existing '=' padding)
+  base64 = base64.replace(/[^A-Za-z0-9+/]/g, "");
+
+  // 4. Properly re-pad the string
   while (base64.length % 4) {
     base64 += "=";
   }
@@ -68,11 +69,13 @@ const Auth = () => {
 
       try {
         // 🔹 Check BE users
-        const { data: beUser } = await supabase
+        const { data: beUser, error: beError } = await supabase
           .from("users")
           .select("*")
           .eq("imacx_id", id)
           .maybeSingle();
+
+        if (beError) throw new Error("Database error (BE): " + beError.message);
 
         if (beUser) {
           // 🔹 Call Edge Function (with timeout)
@@ -106,10 +109,7 @@ const Auth = () => {
               loginTime: new Date().toISOString(),
             };
 
-            localStorage.setItem(
-              "vitaminDUser",
-              JSON.stringify(userData)
-            );
+            localStorage.setItem("vitaminDUser", JSON.stringify(userData));
 
             navigate("/", { replace: true });
           } catch {
@@ -125,10 +125,7 @@ const Auth = () => {
               loginTime: new Date().toISOString(),
             };
 
-            localStorage.setItem(
-              "vitaminDUser",
-              JSON.stringify(userData)
-            );
+            localStorage.setItem("vitaminDUser", JSON.stringify(userData));
 
             navigate("/", { replace: true });
           }
@@ -137,11 +134,13 @@ const Auth = () => {
         }
 
         // 🔹 Check BM users
-        const { data: bmUsers } = await supabase
+        const { data: bmUsers, error: bmError } = await supabase
           .from("usersbm")
           .select("*")
           .eq("imacx_id", id)
           .order("id", { ascending: true });
+
+        if (bmError) throw new Error("Database error (BM): " + bmError.message);
 
         if (!bmUsers || bmUsers.length === 0) {
           throw new Error("Invalid IMACX ID");
@@ -166,10 +165,7 @@ const Auth = () => {
           loginTime: new Date().toISOString(),
         };
 
-        localStorage.setItem(
-          "vitaminDUser",
-          JSON.stringify(userData)
-        );
+        localStorage.setItem("vitaminDUser", JSON.stringify(userData));
 
         navigate("/", { replace: true });
       } catch (err: any) {
@@ -189,7 +185,7 @@ const Auth = () => {
         setIsLoading(false);
       }
     },
-    [navigate, toast]
+    [navigate, toast],
   );
 
   /* =========================================================
@@ -200,11 +196,11 @@ const Auth = () => {
     if (!encodedParam) return;
 
     try {
-      const decodedId = decodeBase64Url(encodedParam);
+      const decodedId = decodeBase64Url(encodedParam).trim();
       if (!decodedId) throw new Error();
       handleIMACXLogin(decodedId);
     } catch {
-      setError("Invalid or corrupted link.");
+      setError("Invalid or corrupted link. Please check your URL.");
 
       toast({
         title: "Invalid Link",
@@ -236,9 +232,7 @@ const Auth = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary to-background px-4">
       <div className="bg-card shadow-lg rounded-xl p-8 w-full max-w-md text-center space-y-6">
-        <h1 className="text-2xl font-bold">
-          Vitamin D Camp Login
-        </h1>
+        <h1 className="text-2xl font-bold">Vitamin D Camp Login</h1>
 
         {isLoading ? (
           <div className="space-y-3">
@@ -261,11 +255,7 @@ const Auth = () => {
               </div>
             </form>
 
-            {error && (
-              <p className="text-destructive text-sm mt-3">
-                {error}
-              </p>
-            )}
+            {error && <p className="text-destructive text-sm mt-3">{error}</p>}
           </>
         )}
       </div>
