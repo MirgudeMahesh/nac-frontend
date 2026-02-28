@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 // Type for the doctor form data (matches your doctors table)
 interface DoctorFormData {
@@ -84,19 +84,7 @@ export function DoctorAddition({ onSuccess }: DoctorAdditionProps) {
     setLoading(true);
 
     try {
-      const { error } = await supabase
-        .from("doctors")
-        .insert([formData]);
-
-      if (error) {
-        console.error("Error inserting doctor:", error);
-        toast({
-          title: "Error",
-          description: `Failed to add doctor: ${error.message}`,
-          variant: "destructive",
-        });
-        return;
-      }
+      await api.createDoctor(formData);
 
       toast({
         title: "Success",

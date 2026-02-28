@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import CreateCampInline from "./CreateCampInline";
 import {
   Plus,
@@ -206,23 +206,12 @@ const Dashboard = () => {
       setError(null);
 
       // 🔑 KEY CHANGE: Filter by user_id
-      const { data, error: fetchError } = await supabase
-        .from("camps")
-        .select(
-          `
-          id,
-          camp_date,
-          status,
-          total_patients,
-          adequate_patients,
-          inadequate_patients,
-          doctors!inner(name, clinic_name, city)
-        `
-        )
-        .eq("user_id", user.id) // ✅ Filter by logged-in user's ID
-        .order("camp_date", { ascending: false });
-
-      if (fetchError) throw fetchError;
+      let data = null;
+      try {
+        data = await api.getCampsByUser(user.id);
+      } catch (fetchError) {
+        throw fetchError;
+      }
 
       const formattedCamps: Camp[] =
         data?.map((camp: any) => ({
@@ -232,7 +221,7 @@ const Dashboard = () => {
           total_patients: camp.total_patients || 0,
           adequate_patients: camp.adequate_patients || 0,
           inadequate_patients: camp.inadequate_patients || 0,
-          doctor: camp.doctors,
+          doctor: camp.doctor,
         })) || [];
 
       // ✅ Auto-activate camps scheduled for today
@@ -240,10 +229,7 @@ const Dashboard = () => {
       for (const camp of formattedCamps) {
         const campDate = new Date(camp.camp_date).setHours(0, 0, 0, 0);
         if (camp.status === "scheduled" && campDate <= today) {
-          await supabase
-            .from("camps")
-            .update({ status: "active" })
-            .eq("id", camp.id);
+          await api.updateCamp(camp.id, { status: "active" });
 
           camp.status = "active";
         }
@@ -367,7 +353,7 @@ const Dashboard = () => {
                 </p>
               </div>
             </div>
-         
+
 
           </div>
         </div>
@@ -436,10 +422,10 @@ const Dashboard = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <CardTitle className="text-lg">
-                        {camp.doctor.name}
+                        {camp?.doctor?.name || "Unknown Doctor"}
                       </CardTitle>
                       <CardDescription>
-                        {camp.doctor.clinic_name}, {camp.doctor.city}
+                        {[camp?.doctor?.clinic_name, camp?.doctor?.city].filter(Boolean).join(", ") || "Unknown Location"}
                       </CardDescription>
                     </div>
                     <Badge variant={getStatusBadgeVariant(camp.status)}>

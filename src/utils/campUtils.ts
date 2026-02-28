@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 
 interface CampWithDoctor {
   id: string;
@@ -55,18 +55,7 @@ export const fetchCampWithDoctor = async (
   }
 
   try {
-    const { data, error } = await supabase
-      .from("camps")
-      .select(
-        `
-        *,
-        doctors!inner(*)
-      `
-      )
-      .eq("id", campId)
-      .single();
-
-    if (error) throw error;
+    const data = await api.getCampById(campId);
 
     if (!data) {
       throw new Error("Camp not found");
@@ -95,13 +84,7 @@ export const fetchCampPatients = async (campId: string): Promise<Patient[]> => {
   }
 
   try {
-    const { data, error } = await supabase
-      .from("patients")
-      .select("*")
-      .eq("camp_id", campId)
-      .order("patient_number", { ascending: true });
-
-    if (error) throw error;
+    const data = await api.getPatientsByCamp(campId);
 
     return (data || []) as Patient[];
   } catch (err: any) {

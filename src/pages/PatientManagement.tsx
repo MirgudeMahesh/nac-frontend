@@ -20,7 +20,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { ArrowLeft, Plus, Users, Calculator, FileText, Languages } from "lucide-react";
 import { fetchCampPatients } from "@/utils/campUtils";
 import {
@@ -262,77 +262,58 @@ const PatientManagement = () => {
 
         let data, error;
 
+        const patientData = {
+          initials: formData.initials.trim(),
+          age,
+          gender: formData.gender,
+          height_feet: heightFeet || null,
+          height_inches: heightInches || null,
+          height_meters: heightMeters || null,
+          weight_kg: weightKg || null,
+          bmi: bmi || null,
+          diabetes: formData.diabetes,
+          hypertension: formData.hypertension,
+          hypothyroidism: formData.hypothyroidism,
+          hyperthyroidism: formData.hyperthyroidism,
+          pcos: formData.pcos,
+          other_comorbidity: formData.other_comorbidity || null,
+          total_score: totalScore,
+          risk_level: riskLevel,
+          questionnaire_responses: questionnaireResponses,
+        };
+
         if (editMode && editingPatientId) {
-          ({ data, error } = await supabase
-            .from("patients")
-            .update({
-              initials: formData.initials.trim(),
-              age,
-              gender: formData.gender,
-              height_feet: heightFeet || null,
-              height_inches: heightInches || null,
-              height_meters: heightMeters || null,
-              weight_kg: weightKg || null,
-              bmi: bmi || null,
-              diabetes: formData.diabetes,
-              hypertension: formData.hypertension,
-              hypothyroidism: formData.hypothyroidism,
-              hyperthyroidism: formData.hyperthyroidism,
-              pcos: formData.pcos,
-              other_comorbidity: formData.other_comorbidity || null,
-              total_score: totalScore,
-              risk_level: riskLevel,
-              questionnaire_responses: questionnaireResponses,
-            })
-            .eq("id", editingPatientId)
-            .select()
-            .single());
+          try {
+            data = await api.updatePatient(editingPatientId, patientData);
+            error = null;
+          } catch (err: any) { error = err; }
         } else {
-          ({ data, error } = await supabase
-            .from("patients")
-            .insert({
+          try {
+            data = await api.createPatient({
+              ...patientData,
               camp_id: campId,
               patient_number: nextPatientNumber,
-              initials: formData.initials.trim(),
-              age,
-              gender: formData.gender,
-              height_feet: heightFeet || null,
-              height_inches: heightInches || null,
-              height_meters: heightMeters || null,
-              weight_kg: weightKg || null,
-              bmi: bmi || null,
-              diabetes: formData.diabetes,
-              hypertension: formData.hypertension,
-              hypothyroidism: formData.hypothyroidism,
-              hyperthyroidism: formData.hyperthyroidism,
-              other_comorbidity: formData.other_comorbidity || null,
-              total_score: totalScore,
-              risk_level: riskLevel,
-              questionnaire_responses: questionnaireResponses,
-            })
-            .select()
-            .single());
+            });
+            error = null;
+          } catch (err: any) { error = err; }
         }
 
         if (error) throw error;
 
         if (!editMode) {
-          const { error: updateError } = await supabase
-            .from("camps")
-            .update({ total_patients: nextPatientNumber })
-            .eq("id", campId);
-
-          if (updateError) throw updateError;
+          try {
+            await api.updateCamp(campId, { total_patients: nextPatientNumber });
+          } catch (updateError) { throw updateError; }
         }
 
-        const { data: campData, error: campFetchError } = await supabase
-          .from("camps")
-          .select("status")
-          .eq("id", campId)
-          .single();
+        let campData = null;
+        let campFetchError = null;
+        try {
+          campData = await api.getCampById(campId);
+        } catch (err: any) { campFetchError = err; }
 
         if (!campFetchError && campData?.status === "scheduled") {
-          await supabase.from("camps").update({ status: "active" }).eq("id", campId);
+          await api.updateCamp(campId, { status: "active" });
 
           toast({
             title: "Camp Activated",
@@ -478,9 +459,8 @@ const PatientManagement = () => {
       // ---- VALIDATION END ----
 
       try {
-        const { error: updateError } = await supabase
-          .from("camps")
-          .update({
+        try {
+          await api.updateCamp(campId, {
             total_patients: summaryForm.total_patients,
             adequate_patients: summaryForm.adequate_patients,
             inadequate_patients: summaryForm.inadequate_patients,
@@ -502,27 +482,17 @@ const PatientManagement = () => {
               summaryForm.deksel_nd === "" ? null : Number(summaryForm.deksel_nd),
 
             status: "completed",
-          })
-          .eq("id", campId);
+          });
+        } catch (updateError) { throw updateError; }
 
-        if (updateError) throw updateError;
+        let campData = null;
+        try {
+          campData = await api.getCampById(campId);
+        } catch (campError) {
+          throw new Error("Doctor details not found.");
+        }
 
-        const { data: campData, error: campError } = await supabase
-          .from("camps")
-          .select(`
-          camp_date,
-          doctors:doctor_id (
-            name,
-            phone,
-            whatsapp_number,
-            clinic_name,
-            city
-          )
-        `)
-          .eq("id", campId)
-          .single();
-
-        if (campError || !campData?.doctors)
+        if (!campData?.doctors)
           throw new Error("Doctor details not found.");
 
         const doctor = campData.doctors;
@@ -575,22 +545,14 @@ Your Partner in managing Vitamin D Deficiency
       if (!campId) return;
 
       try {
-        const { data: campData, error: campError } = await supabase
-          .from("camps")
-          .select(`
-        camp_date,
-        doctors:doctor_id (
-          name,
-          phone,
-          whatsapp_number,
-          clinic_name,
-          city
-        )
-      `)
-          .eq("id", campId)
-          .single();
+        let campData = null;
+        try {
+          campData = await api.getCampById(campId);
+        } catch (campError) {
+          throw new Error("Doctor details not found");
+        }
 
-        if (campError || !campData?.doctors) {
+        if (!campData?.doctors) {
           throw new Error("Doctor details not found");
         }
 
@@ -1464,7 +1426,7 @@ appropriate treatment.
                     <div>
                       <span className="text-muted-foreground">BMI:</span>
                       <span className="ml-2 font-medium">
-                        {patient.bmi?.toFixed(1) || "N/A"}
+                        {!isNaN(Number(patient.bmi)) && patient.bmi !== null ? Number(patient.bmi).toFixed(1) : "N/A"}
                       </span>
                     </div>
                     <div>

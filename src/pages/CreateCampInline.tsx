@@ -20,7 +20,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Calendar, Phone, AlertCircle, Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -95,13 +95,10 @@ const CreateCampInline = memo(({ onSuccess }: Props) => {
 
       if (role === "BE") {
         // BE user - get single territory from users table
-        const { data, error } = await supabase
-          .from("users")
-          .select("territory")
-          .eq("id", currentUser.id)
-          .single();
-
-        if (error) throw error;
+        let data = null;
+        try {
+          data = await api.getUserByImacxId(currentUser.imacx_id);
+        } catch (error) { throw error; }
 
         setUserTerritory(data?.territory || null);
 
@@ -124,12 +121,10 @@ const CreateCampInline = memo(({ onSuccess }: Props) => {
         console.log(`Fetching all BEs under BM territory: ${bmTerritory}`);
 
         // ✅ Find ALL rows where territory matches BM's territory
-        const { data, error } = await supabase
-          .from("usersbm")
-          .select("beterritory")
-          .eq("territory", bmTerritory);
-
-        if (error) throw error;
+        let data = null;
+        try {
+          data = await api.getBmUsersByTerritory(bmTerritory);
+        } catch (error) { throw error; }
 
         if (!data || data.length === 0) {
           setTerritoryError(
@@ -187,40 +182,22 @@ const CreateCampInline = memo(({ onSuccess }: Props) => {
 
       const role = currentUser.role;
 
-      let query = supabase
-        .from("doctors")
-        .select("*")
-        .eq("is_selected_by_marketing", true);
-
-      if (role === "BM") {
-        // ✅ BM user - filter by multiple territories
-        const territories = userTerritory
-          .split(",")
-          .map((t) => t.trim())
-          .filter((t) => t.length > 0);
-
-        if (territories.length === 0) {
-          setTerritoryError("No valid territories found.");
-          setDoctors([]);
-          setLoadingDoctors(false);
-          return;
+      let data = null;
+      let error = null;
+      try {
+        if (role === "BM") {
+          const territories = userTerritory.split(",").map((t) => t.trim()).filter((t) => t.length > 0);
+          if (territories.length === 0) {
+            setTerritoryError("No valid territories found.");
+            setDoctors([]);
+            setLoadingDoctors(false);
+            return;
+          }
+          data = await api.getDoctorsByTerritories(territories);
+        } else {
+          data = await api.getDoctorsByTerritory(userTerritory);
         }
-
-        // Use .in() to match doctors from ANY of the BE territories
-        query = query.in("Territory", territories);
-
-        console.log(
-          `BM fetching doctors from ${territories.length} territories:`,
-          territories
-        );
-      } else {
-        // ✅ BE user - filter by single territory
-        query = query.eq("Territory", userTerritory);
-        console.log(`BE fetching doctors from territory: ${userTerritory}`);
-      }
-
-      const { data, error } = await query.order("name");
-
+      } catch (err: any) { error = err; }
       if (error) throw error;
 
       if (!data || data.length === 0) {
@@ -310,17 +287,9 @@ const CreateCampInline = memo(({ onSuccess }: Props) => {
     async (file: File, campId: string): Promise<string> => {
       try {
         const fileExt = file.name.split(".").pop();
-        const fileName = `${campId}.${fileExt}`;
-        const filePath = `consents/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from("consent_forms")
-          .upload(filePath, file, {
-            cacheControl: "3600",
-            upsert: true,
-          });
-
-        if (uploadError) throw uploadError;
+        const newFileName = `${campId}.${fileExt}`;
+        const renamedFile = new File([file], newFileName, { type: file.type });
+        const filePath = await api.uploadFile(renamedFile);
 
         return filePath;
       } catch (err: any) {
@@ -404,12 +373,9 @@ Your Partner in Vitamin D Management
 
         // Update doctor's WhatsApp number
         if (doctorWhatsApp) {
-          const { error: updateError } = await supabase
-            .from("doctors")
-            .update({ whatsapp_number: doctorWhatsApp })
-            .eq("id", selectedDoctorId);
-
-          if (updateError) {
+          try {
+            await api.updateDoctor(selectedDoctorId, { whatsapp_number: doctorWhatsApp });
+          } catch (updateError: any) {
             console.warn(
               "Failed to update doctor's WhatsApp number:",
               updateError.message
@@ -421,19 +387,16 @@ Your Partner in Vitamin D Management
         const initialStatus = determineCampStatus(campDate);
 
         // Create camp
-        const { data: camp, error: campError } = await supabase
-          .from("camps")
-          .insert({
+        let camp = null;
+        try {
+          camp = await api.createCamp({
             user_id: currentUser.id,
             doctor_id: selectedDoctorId,
             camp_date: campDate,
             status: initialStatus,
             total_patients: 0,
-          })
-          .select()
-          .single();
-
-        if (campError) {
+          });
+        } catch (campError) {
           console.error("Camp creation error:", campError);
           throw campError;
         }
@@ -442,12 +405,9 @@ Your Partner in Vitamin D Management
         if (consentFile) {
           const filePath = await uploadConsentForm(consentFile, camp.id);
 
-          const { error: updateError } = await supabase
-            .from("camps")
-            .update({ consent_form_url: filePath })
-            .eq("id", camp.id);
-
-          if (updateError) throw updateError;
+          try {
+            await api.updateCamp(camp.id, { consent_form_url: filePath });
+          } catch (updateError) { throw updateError; }
         }
 
         // Send WhatsApp message
@@ -550,12 +510,12 @@ Your Partner in Vitamin D Management
                   <span className="truncate text-left">
                     {selectedDoctorId
                       ? doctors.find((doctor) => doctor.id === selectedDoctorId)
-                          ?.name
+                        ?.name
                       : loadingDoctors
-                      ? "Loading doctors..."
-                      : doctors.length === 0
-                      ? "No doctors in your territory"
-                      : "Choose a doctor"}
+                        ? "Loading doctors..."
+                        : doctors.length === 0
+                          ? "No doctors in your territory"
+                          : "Choose a doctor"}
                   </span>
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
@@ -578,9 +538,8 @@ Your Partner in Vitamin D Management
                       {doctors.map((doctor) => (
                         <CommandItem
                           key={doctor.id}
-                          value={`${doctor.name} ${doctor.clinic_name} ${
-                            doctor.city
-                          } ${doctor.Territory || ""}`}
+                          value={`${doctor.name} ${doctor.clinic_name} ${doctor.city
+                            } ${doctor.Territory || ""}`}
                           onSelect={() => {
                             handleDoctorSelect(doctor.id);
                             setOpen(false);

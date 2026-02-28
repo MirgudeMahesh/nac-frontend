@@ -4,17 +4,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Activity } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createClient } from "@supabase/supabase-js";
-import { Base64 } from "js-base64";
+import { api } from "@/lib/api";
 
-const EDGE_FUNCTION_URL =
-  "https://jjtvugsixtauuwyyzkoc.supabase.co/functions/v1/imacx-login";
-
-// ✅ Initialize Supabase client
-const supabase = createClient(
-  "https://jjtvugsixtauuwyyzkoc.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqdHZ1Z3NpeHRhdXV3eXl6a29jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwMzMxMTIsImV4cCI6MjA3NDYwOTExMn0.NbIzQIouOFTQfbvZVHI4TnHtBT08uct2nuMMwx6HhHc",
-);
+// Removed Supabase Edge Function URL
 
 /* =========================================================
    ✅ URL-SAFE BASE64 HELPERS (Fixes mobile '=' issue)
@@ -22,26 +14,12 @@ const supabase = createClient(
 
 // Encode safely for URLs
 const encodeBase64Url = (value: string) => {
-  return Base64.encodeURI(value);
+  return btoa(value);
 };
 
-// Decode safely even if padding is missing or string has newlines/spaces
+// Decode safely
 const decodeBase64Url = (value: string) => {
-  // 1. Replace spaces with '+' (in case URL parser converted '+' to ' ')
-  // 2. Replace URL-safe base64 '-' and '_' with standard '+' and '/'
-  let base64 = value.replace(/ /g, "+").replace(/-/g, "+").replace(/_/g, "/");
-
-  // 3. Strip all characters that aren't valid base64 data (like whitespace, metadata, or existing '=' padding)
-  base64 = base64.replace(/[^A-Za-z0-9+/]/g, "");
-
-  // 4. Properly re-pad the string
-  while (base64.length % 4) {
-    base64 += "=";
-  }
-
-  // Use js-base64 to decode safely, avoiding DOMExceptions on iOS/Safari
-  // with base64 strings that have non-zero padding bits
-  return Base64.decode(base64);
+  return atob(value);
 };
 
 const Auth = () => {
@@ -72,78 +50,37 @@ const Auth = () => {
 
       try {
         // 🔹 Check BE users
-        const { data: beUser, error: beError } = await supabase
-          .from("users")
-          .select("*")
-          .eq("imacx_id", id)
-          .maybeSingle();
-
-        if (beError) throw new Error("Database error (BE): " + beError.message);
+        let beUser = null;
+        try {
+          beUser = await api.getUserByImacxId(id);
+        } catch (beError: any) {
+          throw new Error("Database error (BE): " + beError.message);
+        }
 
         if (beUser) {
-          // 🔹 Call Edge Function (with timeout)
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
+          const userData = {
+            id: beUser.id,
+            email: beUser.email || `${id}@company.com`,
+            imacx_id: id,
+            role: "BE",
+            territory: beUser.territory,
+            name: beUser.name,
+            phone: beUser.phone,
+            loginTime: new Date().toISOString(),
+          };
 
-            const response = await fetch(EDGE_FUNCTION_URL, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ imacx_id: id }),
-              signal: controller.signal,
-            });
-
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-              throw new Error("Edge authentication failed");
-            }
-
-            const result = await response.json();
-
-            const userData = {
-              id: result.session?.user?.id || beUser.id,
-              email: result.session?.user?.email || `${id}@company.com`,
-              imacx_id: id,
-              role: "BE",
-              territory: beUser.territory,
-              name: beUser.name,
-              phone: beUser.phone,
-              loginTime: new Date().toISOString(),
-            };
-
-            localStorage.setItem("vitaminDUser", JSON.stringify(userData));
-
-            navigate("/", { replace: true });
-          } catch {
-            // 🔹 Fallback login if edge fails
-            const userData = {
-              id: beUser.id,
-              email: beUser.email || `${id}@company.com`,
-              imacx_id: id,
-              role: "BE",
-              territory: beUser.territory,
-              name: beUser.name,
-              phone: beUser.phone,
-              loginTime: new Date().toISOString(),
-            };
-
-            localStorage.setItem("vitaminDUser", JSON.stringify(userData));
-
-            navigate("/", { replace: true });
-          }
-
+          localStorage.setItem("vitaminDUser", JSON.stringify(userData));
+          navigate("/", { replace: true });
           return;
         }
 
         // 🔹 Check BM users
-        const { data: bmUsers, error: bmError } = await supabase
-          .from("usersbm")
-          .select("*")
-          .eq("imacx_id", id)
-          .order("id", { ascending: true });
-
-        if (bmError) throw new Error("Database error (BM): " + bmError.message);
+        let bmUsers = null;
+        try {
+          bmUsers = await api.getBmUsersByImacxId(id);
+        } catch (bmError: any) {
+          throw new Error("Database error (BM): " + bmError.message);
+        }
 
         if (!bmUsers || bmUsers.length === 0) {
           throw new Error("Invalid IMACX ID");
