@@ -265,9 +265,7 @@ const Dashboard = () => {
       fetchDashboardData();
     }
   }, [user, fetchDashboardData]);
-
-  // ✅ Updated handleSignOut - No Supabase Auth
-
+  // ✅ Updated handleSignOut
 
   const getStatusBadgeVariant = useCallback(
     (status: string): "default" | "destructive" | "secondary" | "outline" => {
@@ -353,7 +351,6 @@ const Dashboard = () => {
                 </p>
               </div>
             </div>
-
 
           </div>
         </div>
