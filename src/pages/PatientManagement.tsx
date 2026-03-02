@@ -446,7 +446,7 @@ const PatientManagement = () => {
         }
       }
 
-      if (territoryPrefix === "STI" || territoryPrefix === "GLST") {
+      if (territoryPrefix === "STI" || territoryPrefix === "GLS") {
         if (isEmpty(summaryForm.deksel_nd)) {
           toast({
             title: "Missing sales data",
@@ -1663,7 +1663,7 @@ appropriate treatment.
                 </div>
               )}
 
-              {(territoryPrefix === "STI" || territoryPrefix === "GLST") && (
+              {(territoryPrefix === "STI" || territoryPrefix === "GLS") && (
                 <div>
                   <Label>No. of Units Sold (Deksel ND)</Label>
                   <Input
