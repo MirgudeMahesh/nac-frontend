@@ -610,7 +610,9 @@ Your Partner in managing Vitamin D Deficiency
     const feet = patient.height_feet ?? 0;
     const inches = patient.height_inches ?? 0;
     const weight = patient.weight_kg ?? 0;
-    const bmi = patient.bmi ? patient.bmi.toFixed(1) : "N/A";
+    const bmi = patient.bmi !== null && patient.bmi !== undefined
+      ? (Math.round(patient.bmi * 10) / 10).toString()
+      : "N/A";
     const total = patient.total_score ?? 0;
     const risk = patient.risk_level ?? "N/A";
 
@@ -1426,7 +1428,9 @@ appropriate treatment.
                     <div>
                       <span className="text-muted-foreground">BMI:</span>
                       <span className="ml-2 font-medium">
-                        {!isNaN(Number(patient.bmi)) && patient.bmi !== null ? Number(patient.bmi).toFixed(1) : "N/A"}
+                        {!isNaN(Number(patient.bmi)) && patient.bmi !== null
+                          ? (Math.round(Number(patient.bmi) * 10) / 10).toString()
+                          : "N/A"}
                       </span>
                     </div>
                     <div>
