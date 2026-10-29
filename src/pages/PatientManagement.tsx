@@ -74,6 +74,25 @@ const IMPROVE_OPTIONS = [
 const HIGH_SYMPTOMS = ["burning", "numbness", "paraesthesia"]; // 2 points
 const LOW_SYMPTOMS = ["weakness", "cramps", "pain"]; // 1 point
 
+// Human-readable names used in "please answer ..." messages
+const FIELD_LABELS: Record<string, string> = {
+  patient_name: "Name of the Patient",
+  age: "Age",
+  hba1c: "HbA1c",
+  burning: "1. Burning",
+  numbness: "2. Numbness",
+  paraesthesia: "3. Paraesthesia",
+  weakness: "4. Feeling of weakness",
+  cramps: "5. Cramps",
+  pain: "6. Pain",
+  location: "Localization (items 7–9)",
+  timing: "Exacerbation (items 10–12)",
+  wakes_from_sleep: "13. Patient is awakened from sleep by the symptoms",
+  improvement: "Symptom improvement when (items 14–16)",
+};
+
+const SECTION_A_FIELDS = ["patient_name", "age", "hba1c"];
+
 type FormState = {
   patient_name: string;
   age: string;
@@ -142,17 +161,28 @@ const GROUP_GRID =
 const CHOICE_GRID =
   "grid grid-cols-[1fr_72px_36px] sm:grid-cols-[1fr_110px_60px] items-center gap-2";
 
+const ERROR_TEXT = "Please answer this question";
+
 // Wrapper with a numbered, shaded header (like the groups on the sheet)
 const GroupBox = ({
   number,
   title,
   children,
+  id,
+  error,
 }: {
   number: number;
   title: string;
   children: React.ReactNode;
+  id?: string;
+  error?: boolean;
 }) => (
-  <div className="border rounded-lg overflow-hidden bg-card">
+  <div
+    id={id}
+    className={`border rounded-lg overflow-hidden bg-card ${
+      error ? "border-destructive ring-2 ring-destructive/30" : ""
+    }`}
+  >
     <div className="flex items-center gap-3 bg-muted px-3 py-2 border-b">
       <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
         {number}
@@ -182,17 +212,31 @@ const YesNoRow = ({
   points,
   value,
   onChange,
+  id,
+  error,
 }: {
   no: number;
   label: string;
   points: number;
   value: string;
   onChange: (v: string) => void;
+  id?: string;
+  error?: boolean;
 }) => (
-  <div className={`${GROUP_GRID} px-3 py-2 border-b last:border-b-0`}>
+  <div
+    id={id}
+    className={`${GROUP_GRID} px-3 py-2 border-b last:border-b-0 ${
+      error ? "bg-destructive/10" : ""
+    }`}
+  >
     <div className="text-sm text-foreground">
       <span className="text-muted-foreground mr-2">{no}.</span>
       {label}
+      {error && (
+        <span className="block text-xs font-semibold text-destructive mt-0.5">
+          {ERROR_TEXT}
+        </span>
+      )}
     </div>
     <label className="flex items-center justify-center gap-1 cursor-pointer">
       <Checkbox
@@ -248,6 +292,13 @@ const ChoiceRow = ({
   </div>
 );
 
+// Red message shown inside a "select one" group that is still unanswered
+const GroupError = () => (
+  <p className="px-3 py-1.5 text-xs font-semibold text-destructive bg-destructive/10 border-b">
+    {ERROR_TEXT}
+  </p>
+);
+
 /* ------------------------------------------------------------------ */
 
 interface Patient {
@@ -273,6 +324,10 @@ const PatientManagement = () => {
   const [showSummary, setShowSummary] = useState(false);
   const [formData, setFormData] = useState<FormState>(EMPTY_FORM);
 
+  // Which accordion section is open, and which field is currently flagged
+  const [openSection, setOpenSection] = useState<string>("sectionA");
+  const [errorField, setErrorField] = useState<string | null>(null);
+
   const [showSummaryDialog, setShowSummaryDialog] = useState(false);
   const [summaryForm, setSummaryForm] = useState({
     total_patients: 0,
@@ -292,10 +347,24 @@ const PatientManagement = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const setField = (key: string, value: string) =>
+  const setField = (key: string, value: string) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
+    // Clear the red highlight as soon as the user answers that question
+    if (errorField === key) setErrorField(null);
+  };
 
   const getPatientName = (p: Patient) => p.patient_name || p.initials || "";
+
+  // Open the right section, highlight the field and scroll to it
+  const goToField = useCallback((key: string) => {
+    setErrorField(key);
+    setOpenSection(SECTION_A_FIELDS.includes(key) ? "sectionA" : "sectionB");
+    // wait for the accordion to open before scrolling
+    setTimeout(() => {
+      const el = document.getElementById(`field-${key}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 250);
+  }, []);
 
   const fetchPatients = useCallback(async () => {
     if (!campId) return;
@@ -330,7 +399,7 @@ const PatientManagement = () => {
     async (e: React.FormEvent) => {
       e.preventDefault();
 
-      // ---- validation ----
+      // ---- validation: find the FIRST unanswered question ----
       const symptomKeys = [...HIGH_SYMPTOMS, ...LOW_SYMPTOMS];
       const requiredFields = ["patient_name", "age", "hba1c", ...symptomKeys];
       if (hasAnySymptom(formData)) {
@@ -340,10 +409,11 @@ const PatientManagement = () => {
       for (const field of requiredFields) {
         if (!formData[field] || !String(formData[field]).trim()) {
           toast({
-            title: "Incomplete form",
-            description: "Please answer all questions before generating the score.",
+            title: "Please answer: " + (FIELD_LABELS[field] || field),
+            description: "The highlighted question is still pending.",
             variant: "destructive",
           });
+          goToField(field);
           return;
         }
       }
@@ -352,9 +422,10 @@ const PatientManagement = () => {
       if (!age || age < 1 || age > 120) {
         toast({
           title: "Invalid age",
-          description: "Please enter a valid age.",
+          description: "Please enter a valid age (1 – 120).",
           variant: "destructive",
         });
+        goToField("age");
         return;
       }
 
@@ -365,9 +436,11 @@ const PatientManagement = () => {
           description: "Please enter a valid HbA1c value (3 – 20 %).",
           variant: "destructive",
         });
+        goToField("hba1c");
         return;
       }
 
+      setErrorField(null);
       setLoading(true);
 
       try {
@@ -466,7 +539,7 @@ const PatientManagement = () => {
         setLoading(false);
       }
     },
-    [formData, patients, campId, toast, fetchPatients, editMode, editingPatientId]
+    [formData, patients, campId, toast, fetchPatients, editMode, editingPatientId, goToField]
   );
 
   const handleCompleteCamp = useCallback(() => {
@@ -745,6 +818,8 @@ appropriate treatment.
     setShowAddForm(true);
     setEditMode(true);
     setEditingPatientId(patient.id);
+    setErrorField(null);
+    setOpenSection("sectionA");
 
     let responses: Record<string, string> = {};
     if (patient.questionnaire_responses) {
@@ -784,6 +859,9 @@ appropriate treatment.
   const liveScore = calculateNssScore(formData);
   const liveInterpretation = getNssInterpretation(liveScore);
 
+  const inputErrorClass = (key: string) =>
+    errorField === key ? "border-destructive ring-2 ring-destructive/30" : "";
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary to-background overflow-y-auto scroll-smooth">
       <div className="max-w-6xl mx-auto px-4 py-8">
@@ -808,6 +886,8 @@ appropriate treatment.
                 setFormData(EMPTY_FORM);
                 setEditMode(false);
                 setEditingPatientId(null);
+                setErrorField(null);
+                setOpenSection("sectionA");
                 setShowAddForm(true);
               }}
               className="bg-gradient-to-r from-primary to-medical-teal hover:from-primary/90 hover:to-medical-teal/90"
@@ -840,36 +920,54 @@ appropriate treatment.
               </div>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleAddPatient} className="space-y-6">
-                <Accordion type="single" collapsible defaultValue="sectionA">
+              {/* noValidate: our own validation tells the user exactly what is pending */}
+              <form onSubmit={handleAddPatient} noValidate className="space-y-6">
+                <Accordion
+                  type="single"
+                  collapsible
+                  value={openSection}
+                  onValueChange={setOpenSection}
+                >
                   {/* Section A – Patient details */}
                   <AccordionItem value="sectionA">
                     <AccordionTrigger>Section A – Patient Details</AccordionTrigger>
                     <AccordionContent>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                        <div className="space-y-2">
+                        <div className="space-y-2" id="field-patient_name">
                           <Label>Name of the Patient *</Label>
                           <Input
                             placeholder="Enter patient name"
                             value={formData.patient_name}
+                            className={inputErrorClass("patient_name")}
                             onChange={(e) => setField("patient_name", e.target.value)}
                             required
                           />
+                          {errorField === "patient_name" && (
+                            <p className="text-xs font-semibold text-destructive">
+                              Please enter the patient name
+                            </p>
+                          )}
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="space-y-2" id="field-age">
                           <Label>Age (years) *</Label>
                           <Input
                             type="number"
                             min="1"
                             max="120"
                             value={formData.age}
+                            className={inputErrorClass("age")}
                             onChange={(e) => setField("age", e.target.value)}
                             required
                           />
+                          {errorField === "age" && (
+                            <p className="text-xs font-semibold text-destructive">
+                              Please enter a valid age (1 – 120)
+                            </p>
+                          )}
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="space-y-2" id="field-hba1c">
                           <Label>HbA1c (%) *</Label>
                           <Input
                             type="number"
@@ -877,9 +975,15 @@ appropriate treatment.
                             max="20"
                             step="0.1"
                             value={formData.hba1c}
+                            className={inputErrorClass("hba1c")}
                             onChange={(e) => setField("hba1c", e.target.value)}
                             required
                           />
+                          {errorField === "hba1c" && (
+                            <p className="text-xs font-semibold text-destructive">
+                              Please enter a valid HbA1c (3 – 20 %)
+                            </p>
+                          )}
                         </div>
                       </div>
                     </AccordionContent>
@@ -896,6 +1000,8 @@ appropriate treatment.
                           {SYMPTOM_QUESTIONS.map((q, i) => (
                             <YesNoRow
                               key={q.key}
+                              id={`field-${q.key}`}
+                              error={errorField === q.key}
                               no={i + 1}
                               label={q.label}
                               points={q.points}
@@ -912,7 +1018,7 @@ appropriate treatment.
 
                         {!symptomsPresent && (
                           <p className="text-xs text-muted-foreground px-1">
-                            Tick Yes for at least one symptom to answer the remaining groups.
+                            Tick Yes for at least one symptom to answer the remaining questions.
                             If all symptoms are No, the score is 0.
                           </p>
                         )}
@@ -920,7 +1026,13 @@ appropriate treatment.
                         {symptomsPresent && (
                           <>
                             {/* 2. Localization */}
-                            <GroupBox number={2} title="Localization">
+                            <GroupBox
+                              number={2}
+                              title="Localization"
+                              id="field-location"
+                              error={errorField === "location"}
+                            >
+                              {errorField === "location" && <GroupError />}
                               <ChoiceHeader />
                               {LOCATION_OPTIONS.map((o, i) => (
                                 <ChoiceRow
@@ -935,7 +1047,13 @@ appropriate treatment.
                             </GroupBox>
 
                             {/* 3. Exacerbation */}
-                            <GroupBox number={3} title="Exacerbation">
+                            <GroupBox
+                              number={3}
+                              title="Exacerbation"
+                              id="field-timing"
+                              error={errorField === "timing" || errorField === "wakes_from_sleep"}
+                            >
+                              {errorField === "timing" && <GroupError />}
                               <ChoiceHeader />
                               {TIMING_OPTIONS.map((o, i) => (
                                 <ChoiceRow
@@ -949,6 +1067,8 @@ appropriate treatment.
                               ))}
                               <YesNoHeader />
                               <YesNoRow
+                                id="field-wakes_from_sleep"
+                                error={errorField === "wakes_from_sleep"}
                                 no={13}
                                 label="Patient is awakened from sleep by the symptoms"
                                 points={1}
@@ -958,7 +1078,13 @@ appropriate treatment.
                             </GroupBox>
 
                             {/* 4. Symptom improvement */}
-                            <GroupBox number={4} title="Symptom Improvement When">
+                            <GroupBox
+                              number={4}
+                              title="Symptom Improvement When"
+                              id="field-improvement"
+                              error={errorField === "improvement"}
+                            >
+                              {errorField === "improvement" && <GroupError />}
                               <ChoiceHeader />
                               {IMPROVE_OPTIONS.map((o, i) => (
                                 <ChoiceRow
@@ -1004,6 +1130,7 @@ appropriate treatment.
                       setEditMode(false);
                       setEditingPatientId(null);
                       setFormData(EMPTY_FORM);
+                      setErrorField(null);
                       setShowAddForm(false);
                     }}
                   >
