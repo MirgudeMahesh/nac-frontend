@@ -319,7 +319,7 @@ const CreateCampInline = memo(({ onSuccess }: Props) => {
       const message = `
 Dear Dr. ${doctor?.name || ""},
 
-Thank you for your consent to conduct Vitamin D Risk Assessment Camp at your clinic on ${new Date(
+Thank you for your consent to conduct Neuropathy symptom assessment Camp at your clinic on ${new Date(
         campDate
       ).toLocaleDateString()}.
 

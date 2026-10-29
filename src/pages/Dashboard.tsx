@@ -45,8 +45,8 @@ interface Camp {
   camp_date: string;
   status: string;
   total_patients: number;
-  adequate_patients?: number;
-  inadequate_patients?: number;
+  adequate_patients?: number;   // = Non-Neuropathic patients
+  inadequate_patients?: number; // = Neuropathic patients
   doctor: {
     name: string;
     clinic_name: string;
@@ -67,8 +67,8 @@ const RiskDistribution = memo(
     adequate,
     inadequate,
   }: {
-    adequate: number;
-    inadequate: number;
+    adequate: number;   // = Non-Neuropathic patients
+    inadequate: number; // = Neuropathic patients
   }) => {
     const total = adequate + inadequate || 1;
     const adequatePct = Math.round((adequate / total) * 100);
@@ -77,7 +77,7 @@ const RiskDistribution = memo(
     return (
       <div className="mt-3">
         <p className="text-sm font-medium text-foreground mb-1">
-          Vitamin D Adequacy Summary
+          Neuropathy Screening Summary
         </p>
         <div className="w-full h-2 rounded-full overflow-hidden bg-muted/50 flex">
           <div
@@ -87,7 +87,7 @@ const RiskDistribution = memo(
             aria-valuenow={adequatePct}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label="Adequate patients percentage"
+            aria-label="Non-Neuropathic patients percentage"
           />
           <div
             className="bg-red-500 h-full transition-all duration-300"
@@ -96,11 +96,11 @@ const RiskDistribution = memo(
             aria-valuenow={inadequatePct}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label="Inadequate patients percentage"
+            aria-label="Neuropathic patients percentage"
           />
         </div>
         <p className="text-xs text-muted-foreground mt-1">
-          🟢 Adequate: {adequate} &nbsp; | &nbsp; 🔴 Inadequate: {inadequate}
+          🟢 Non-Neuropathic: {adequate} &nbsp; | &nbsp; 🔴 Neuropathic: {inadequate}
         </p>
       </div>
     );
@@ -139,7 +139,7 @@ const EmptyState = memo(({ onCreate }: { onCreate: () => void }) => (
   <Card className="col-span-full text-center p-10 bg-muted/30">
     <Stethoscope className="h-12 w-12 text-primary mx-auto mb-4" />
     <h3 className="text-xl font-semibold text-foreground mb-2">
-      Start Your First Vitamin D Camp
+      Start Your First Neuropathy Camp
     </h3>
     <p className="text-muted-foreground mb-4">
       No active camps yet. Create one now to begin patient screening!
@@ -344,7 +344,7 @@ const Dashboard = () => {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-foreground">
-                  Vitamin D Camp Dashboard
+                  Neuropathy Camp Dashboard
                 </h1>
                 <p className="text-xs text-muted-foreground">
                   {user.email}

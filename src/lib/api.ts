@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://d3-backend-fomo.onrender.com/api'; 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api'; 
 
 export const api = {
     // Users BE

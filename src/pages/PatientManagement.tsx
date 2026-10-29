@@ -17,21 +17,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-import { ArrowLeft, Plus, Users, Calculator, FileText, Languages } from "lucide-react";
-import { fetchCampPatients } from "@/utils/campUtils";
+import { ArrowLeft, Plus, Users, Calculator, FileText } from "lucide-react";
 import {
-  calculateBMI,
-  getRiskLevel,
-  getRiskBadgeVariant,
-  validatePatientFormData,
-  calculateSectionBScore,
-  generateDoctorWhatsAppMessage,
+  fetchCampPatients,
   sendWhatsAppMessage,
-  formatPhoneNumber,
 } from "@/utils/campUtils";
 import {
   Dialog,
@@ -46,27 +38,157 @@ import {
   AccordionTrigger,
   AccordionContent,
 } from "@/components/ui/accordion";
-import { formTranslations, type Language } from "@/utils/formTranslations";
+
+/* ------------------------------------------------------------------ */
+/*  Neuropathy Symptom Score (NSS) – questions + scoring               */
+/* ------------------------------------------------------------------ */
+
+const NSS_MAX_SCORE = 10;
+const NEUROPATHIC_CUTOFF = 3; // score >= 3 => Neuropathic
+
+type Option = { value: string; label: string };
+
+const YES_NO: Option[] = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+];
+
+// Group 1 – Symptomatology (Foot / Lower Leg)
+const SYMPTOM_QUESTIONS: { key: string; label: string }[] = [
+  { key: "burning", label: "Do you have burning in your feet / lower legs?" },
+  { key: "numbness", label: "Do you have numbness in your feet / lower legs?" },
+  { key: "paraesthesia", label: "Do you have paraesthesia (tingling, pins and needles)?" },
+  { key: "weakness", label: "Do you have a feeling of weakness (fatigue, exhaustion)?" },
+  { key: "cramps", label: "Do you have cramps?" },
+  { key: "pain", label: "Do you have pain?" },
+];
+
+// Group 2 – Localization
+const LOCATION_OPTIONS: Option[] = [
+  { value: "feet", label: "Feet" },
+  { value: "lower_leg", label: "Lower leg" },
+  { value: "elsewhere", label: "Elsewhere" },
+];
+
+// Group 3 – Exacerbation
+const TIMING_OPTIONS: Option[] = [
+  { value: "night", label: "Present at night" },
+  { value: "day_night", label: "Present during day and night" },
+  { value: "day_only", label: "Only present during the day" },
+];
+
+// Group 4 – Symptom improvement when
+const IMPROVE_OPTIONS: Option[] = [
+  { value: "walking", label: "Walking" },
+  { value: "standing", label: "Standing" },
+  { value: "resting", label: "Sitting or lying down" },
+];
+
+const HIGH_SYMPTOMS = ["burning", "numbness", "paraesthesia"]; // 2 points
+const LOW_SYMPTOMS = ["weakness", "cramps", "pain"]; // 1 point
+
+type FormState = {
+  patient_name: string;
+  age: string;
+  hba1c: string;
+  burning: string;
+  numbness: string;
+  paraesthesia: string;
+  weakness: string;
+  cramps: string;
+  pain: string;
+  location: string;
+  timing: string;
+  wakes_from_sleep: string;
+  improvement: string;
+  [key: string]: string;
+};
+
+const EMPTY_FORM: FormState = {
+  patient_name: "",
+  age: "",
+  hba1c: "",
+  burning: "",
+  numbness: "",
+  paraesthesia: "",
+  weakness: "",
+  cramps: "",
+  pain: "",
+  location: "",
+  timing: "",
+  wakes_from_sleep: "",
+  improvement: "",
+};
+
+const hasAnySymptom = (f: Record<string, any>) =>
+  [...HIGH_SYMPTOMS, ...LOW_SYMPTOMS].some((k) => f[k] === "yes");
+
+const calculateNssScore = (f: Record<string, any>): number => {
+  // Group 1: highest symptom type present
+  let group1 = 0;
+  if (HIGH_SYMPTOMS.some((k) => f[k] === "yes")) group1 = 2;
+  else if (LOW_SYMPTOMS.some((k) => f[k] === "yes")) group1 = 1;
+
+  // No symptoms at all => score 0
+  if (group1 === 0) return 0;
+
+  const location = f.location === "feet" ? 2 : f.location === "lower_leg" ? 1 : 0;
+  const timing = f.timing === "night" ? 2 : f.timing === "day_night" ? 1 : 0;
+  const wakes = f.wakes_from_sleep === "yes" ? 1 : 0;
+  const improvement = f.improvement === "walking" ? 2 : f.improvement === "standing" ? 1 : 0;
+
+  return group1 + location + timing + wakes + improvement;
+};
+
+const getNssInterpretation = (score: number): "Neuropathic" | "Non-Neuropathic" =>
+  score >= NEUROPATHIC_CUTOFF ? "Neuropathic" : "Non-Neuropathic";
+
+const getBadgeVariant = (interpretation: string | null) =>
+  interpretation === "Neuropathic" ? "destructive" : "default";
+
+/* ------------------------------------------------------------------ */
+/*  Small reusable select                                              */
+/* ------------------------------------------------------------------ */
+
+const QuestionSelect = ({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Option[];
+  onChange: (v: string) => void;
+}) => (
+  <div>
+    <Label>{label} *</Label>
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger>
+        <SelectValue placeholder="Select" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  </div>
+);
+
+/* ------------------------------------------------------------------ */
 
 interface Patient {
   id: string;
   patient_number: number;
-  initials: string;
+  patient_name?: string | null;
+  initials?: string | null; // old column, used as fallback for the name
   age: number;
-  gender: string;
-  height_feet: number | null;
-  height_inches: number | null;
-  height_meters: number | null;
-  weight_kg: number | null;
-  bmi: number | null;
-  diabetes: boolean;
-  hypertension: boolean;
-  hypothyroidism: boolean;
-  hyperthyroidism: boolean;
-  pcos: boolean;
-  other_comorbidity: string | null;
+  hba1c: number | null;
   total_score: number;
-  risk_level: string | null;
+  risk_level: string | null; // "Neuropathic" | "Non-Neuropathic"
   questionnaire_responses: Record<string, string> | string | null;
 }
 
@@ -79,44 +201,13 @@ const PatientManagement = () => {
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
 
   const [showSummary, setShowSummary] = useState(false);
-  const [language, setLanguage] = useState<Language>("english");
-  const [formData, setFormData] = useState({
-    initials: "",
-    age: "",
-    gender: "",
-    height_feet: "",
-    height_inches: "",
-    weight_kg: "",
-    diabetes: false,
-    hypertension: false,
-    hypothyroidism: false,
-    hyperthyroidism: false,
-    pcos: false,
-    other_comorbidity: "",
-    // Section B answers (18 questions)
-    q3: "",
-    q4: "",
-    q5: "",
-    q6: "",
-    q7: "",
-    q8: "",
-    q9: "",
-    q10: "",
-    q11: "",
-    q12: "",
-    q13: "",
-    q14: "",
-    q15: "",
-    q16: "",
-    q17: "",
-    q18: "",
-  });
+  const [formData, setFormData] = useState<FormState>(EMPTY_FORM);
 
   const [showSummaryDialog, setShowSummaryDialog] = useState(false);
   const [summaryForm, setSummaryForm] = useState({
     total_patients: 0,
-    adequate_patients: 0,
-    inadequate_patients: 0,
+    adequate_patients: 0, // = Non-Neuropathic (column name kept for backend compatibility)
+    inadequate_patients: 0, // = Neuropathic (column name kept for backend compatibility)
     rx_generated: "",
     units_sold: "",
     deksel_nano_syrup: "",
@@ -131,12 +222,17 @@ const PatientManagement = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  const setField = (key: string, value: string) =>
+    setFormData((prev) => ({ ...prev, [key]: value }));
+
+  const getPatientName = (p: Patient) => p.patient_name || p.initials || "";
+
   const fetchPatients = useCallback(async () => {
     if (!campId) return;
 
     try {
       const data = await fetchCampPatients(campId);
-      setPatients(data as Patient[]);
+      setPatients(data as unknown as Patient[]);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : "Failed to fetch patients";
       toast({
@@ -151,11 +247,9 @@ const PatientManagement = () => {
 
   useEffect(() => {
     const stored = localStorage.getItem("vitaminDUser");
-    console.log("Stored User:", stored);
     const currentUser = stored ? JSON.parse(stored) : null;
     const prefix = currentUser?.territory?.slice(0, 3) ?? "";
     setTerritoryPrefix(prefix);
-    console.log("Territory Prefix:", prefix);
 
     if (campId) {
       fetchPatients();
@@ -166,47 +260,39 @@ const PatientManagement = () => {
     async (e: React.FormEvent) => {
       e.preventDefault();
 
-      const requiredFields = [
-        "initials",
-        "age",
-        "gender",
-        "height_feet",
-        "height_inches",
-        "weight_kg",
-        "q3",
-        "q4",
-        "q5",
-        "q6",
-        "q7",
-        "q8",
-        "q9",
-        "q10",
-        "q11",
-        "q12",
-        "q13",
-        "q14",
-        "q15",
-        "q16",
-        "q17",
-        "q18",
-      ];
+      // ---- validation ----
+      const symptomKeys = [...HIGH_SYMPTOMS, ...LOW_SYMPTOMS];
+      const requiredFields = ["patient_name", "age", "hba1c", ...symptomKeys];
+      if (hasAnySymptom(formData)) {
+        requiredFields.push("location", "timing", "wakes_from_sleep", "improvement");
+      }
 
       for (const field of requiredFields) {
-        // @ts-expect-error index access
-        if (!formData[field]) {
+        if (!formData[field] || !String(formData[field]).trim()) {
           toast({
             title: "Incomplete form",
-            description: "Please answer all questions in Section A and B before generating report.",
+            description: "Please answer all questions before generating the score.",
             variant: "destructive",
           });
           return;
         }
       }
 
-      if (!validatePatientFormData(formData)) {
+      const age = Number(formData.age);
+      if (!age || age < 1 || age > 120) {
         toast({
-          title: "Missing required fields",
-          description: "Please fill in all required fields.",
+          title: "Invalid age",
+          description: "Please enter a valid age.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const hba1c = Number(formData.hba1c);
+      if (!hba1c || hba1c < 3 || hba1c > 20) {
+        toast({
+          title: "Invalid HbA1c",
+          description: "Please enter a valid HbA1c value (3 – 20 %).",
           variant: "destructive",
         });
         return;
@@ -217,68 +303,34 @@ const PatientManagement = () => {
       try {
         const nextPatientNumber = patients.length + 1;
 
-        const heightFeet = Number(formData.height_feet) || 0;
-        const heightInches = Number(formData.height_inches) || 0;
-
-        if (heightFeet > 7 || (heightFeet === 7 && heightInches > 0)) {
-          toast({
-            title: "Invalid height",
-            description: "Height cannot exceed 7 feet.",
-            variant: "destructive",
-          });
-          setLoading(false);
-          return;
-        }
-
-        const totalInches = heightFeet * 12 + heightInches;
-        const heightMeters = totalInches > 0 ? totalInches * 0.0254 : 0;
-        const weightKg = Number(formData.weight_kg) || 0;
-        const age = Number(formData.age) || 0;
-
-        const bmi = calculateBMI(weightKg, heightMeters);
-        const totalScore = calculateSectionBScore(formData, age, bmi);
-        const riskLevel = getRiskLevel(totalScore);
+        const totalScore = calculateNssScore(formData);
+        const interpretation = getNssInterpretation(totalScore);
+        const symptomsPresent = hasAnySymptom(formData);
 
         const questionnaireResponses = {
-          q1: age > 50 ? "yes" : "no",
-          q2: bmi >= 30 ? "yes" : "no",
-          q3: formData.q3,
-          q4: formData.q4,
-          q5: formData.q5,
-          q6: formData.q6,
-          q7: formData.q7,
-          q8: formData.q8,
-          q9: formData.q9,
-          q10: formData.q10,
-          q11: formData.q11,
-          q12: formData.q12,
-          q13: formData.q13,
-          q14: formData.q14,
-          q15: formData.q15,
-          q16: formData.q16,
-          q17: formData.q17,
-          q18: formData.q18,
+          burning: formData.burning,
+          numbness: formData.numbness,
+          paraesthesia: formData.paraesthesia,
+          weakness: formData.weakness,
+          cramps: formData.cramps,
+          pain: formData.pain,
+          location: symptomsPresent ? formData.location : "",
+          timing: symptomsPresent ? formData.timing : "",
+          wakes_from_sleep: symptomsPresent ? formData.wakes_from_sleep : "",
+          improvement: symptomsPresent ? formData.improvement : "",
         };
 
         let data, error;
 
+        const patientName = formData.patient_name.trim();
+
         const patientData = {
-          initials: formData.initials.trim(),
+          patient_name: patientName,
+          initials: patientName, // kept so the existing backend column still gets the name
           age,
-          gender: formData.gender,
-          height_feet: heightFeet || null,
-          height_inches: heightInches || null,
-          height_meters: heightMeters || null,
-          weight_kg: weightKg || null,
-          bmi: bmi || null,
-          diabetes: formData.diabetes,
-          hypertension: formData.hypertension,
-          hypothyroidism: formData.hypothyroidism,
-          hyperthyroidism: formData.hyperthyroidism,
-          pcos: formData.pcos,
-          other_comorbidity: formData.other_comorbidity || null,
+          hba1c,
           total_score: totalScore,
-          risk_level: riskLevel,
+          risk_level: interpretation,
           questionnaire_responses: questionnaireResponses,
         };
 
@@ -328,37 +380,9 @@ const PatientManagement = () => {
             : `Patient ${nextPatientNumber} has been registered.`,
         });
 
-        setFormData({
-          initials: "",
-          age: "",
-          gender: "",
-          height_feet: "",
-          height_inches: "",
-          weight_kg: "",
-          diabetes: false,
-          hypertension: false,
-          hypothyroidism: false,
-          hyperthyroidism: false,
-          pcos: false,
-          other_comorbidity: "",
-          q3: "",
-          q4: "",
-          q5: "",
-          q6: "",
-          q7: "",
-          q8: "",
-          q9: "",
-          q10: "",
-          q11: "",
-          q12: "",
-          q13: "",
-          q14: "",
-          q15: "",
-          q16: "",
-          q17: "",
-          q18: "",
-        });
-
+        setFormData(EMPTY_FORM);
+        setEditMode(false);
+        setEditingPatientId(null);
         setShowAddForm(false);
         await fetchPatients();
       } catch (error: unknown) {
@@ -377,13 +401,13 @@ const PatientManagement = () => {
 
   const handleCompleteCamp = useCallback(() => {
     const total = patients.length;
-    const adequate = patients.filter((p) => p.risk_level === "Adequate").length;
-    const inadequate = patients.filter((p) => p.risk_level === "Inadequate").length;
+    const nonNeuropathic = patients.filter((p) => p.risk_level === "Non-Neuropathic").length;
+    const neuropathic = patients.filter((p) => p.risk_level === "Neuropathic").length;
 
     setSummaryForm({
       total_patients: total,
-      adequate_patients: adequate,
-      inadequate_patients: inadequate,
+      adequate_patients: nonNeuropathic,
+      inadequate_patients: neuropathic,
       rx_generated: "",
       units_sold: "",
       deksel_nano_syrup: "",
@@ -399,7 +423,8 @@ const PatientManagement = () => {
 
   const handleDone = useCallback(
     async () => {
-      // ---- VALIDATION START ----
+      // ---- VALIDATION START (commented out: sales fields are hidden for now) ----
+      /*
       const isEmpty = (v: any) =>
         v === undefined || v === null || v === "";
 
@@ -456,6 +481,7 @@ const PatientManagement = () => {
           return;
         }
       }
+      */
       // ---- VALIDATION END ----
 
       try {
@@ -464,22 +490,23 @@ const PatientManagement = () => {
             total_patients: summaryForm.total_patients,
             adequate_patients: summaryForm.adequate_patients,
             inadequate_patients: summaryForm.inadequate_patients,
-            rx_generated:
-              summaryForm.rx_generated === "" ? null : Number(summaryForm.rx_generated),
 
-            // renamed DB columns (use quoted keys)
-            ['Deksel Nano 60K_']:
-              summaryForm.units_sold === "" ? null : Number(summaryForm.units_sold),
-            ['Deksel Neo 60K_']:
-              summaryForm.deksel_nano_syrup === "" ? null : Number(summaryForm.deksel_nano_syrup),
-            deksel_2k_syrup:
-              summaryForm.deksel_2k_syrup === "" ? null : Number(summaryForm.deksel_2k_syrup),
-            ['Deksel 1K Spray_']:
-              summaryForm.deksel_neo_syrup === "" ? null : Number(summaryForm.deksel_neo_syrup),
-            ['Deksel CD']:
-              summaryForm.deksel_cd === "" ? null : Number(summaryForm.deksel_cd),
-            ['Deksel ND']:
-              summaryForm.deksel_nd === "" ? null : Number(summaryForm.deksel_nd),
+            // Sales fields are hidden for now -> send 0 so the backend needs no change.
+            // Original logic (restore when the fields are shown again):
+            //   rx_generated: summaryForm.rx_generated === "" ? null : Number(summaryForm.rx_generated),
+            //   ['Deksel Nano 60K_']: summaryForm.units_sold === "" ? null : Number(summaryForm.units_sold),
+            //   ['Deksel Neo 60K_']: summaryForm.deksel_nano_syrup === "" ? null : Number(summaryForm.deksel_nano_syrup),
+            //   deksel_2k_syrup: summaryForm.deksel_2k_syrup === "" ? null : Number(summaryForm.deksel_2k_syrup),
+            //   ['Deksel 1K Spray_']: summaryForm.deksel_neo_syrup === "" ? null : Number(summaryForm.deksel_neo_syrup),
+            //   ['Deksel CD']: summaryForm.deksel_cd === "" ? null : Number(summaryForm.deksel_cd),
+            //   ['Deksel ND']: summaryForm.deksel_nd === "" ? null : Number(summaryForm.deksel_nd),
+            rx_generated: 0,
+            ['Deksel Nano 60K_']: 0,
+            ['Deksel Neo 60K_']: 0,
+            deksel_2k_syrup: 0,
+            ['Deksel 1K Spray_']: 0,
+            ['Deksel CD']: 0,
+            ['Deksel ND']: 0,
 
             status: "completed",
           });
@@ -504,15 +531,14 @@ const PatientManagement = () => {
         const message = `
 Dear Dr. ${doctor.name},
 
-Please find below the summary of today’s Vitamin D Screening Camp conducted at your clinic:
+Please find below the summary of today’s Neuropathy Screening Camp conducted at your clinic:
 
 • Total patients screened: ${summaryForm.total_patients}
-• Patients with Inadequate Vitamin D: ${summaryForm.inadequate_patients}
-• Patients with Adequate Vitamin D: ${summaryForm.adequate_patients}
+• Patients with Neuropathic symptoms: ${summaryForm.inadequate_patients}
+• Patients with Non-Neuropathic symptoms: ${summaryForm.adequate_patients}
 
 Thank you for your kind cooperation and for partnering with Pulse Pharmaceuticals in this important public health initiative.
 Team Pulse Pharmaceuticals
-Your Partner in managing Vitamin D Deficiency
 `.trim();
 
         const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(
@@ -522,7 +548,7 @@ Your Partner in managing Vitamin D Deficiency
 
         toast({
           title: "Camp Completed",
-          description: "Summary and sales data saved, message sent to doctor.",
+          description: "Summary saved, message sent to doctor.",
         });
 
         setShowSummaryDialog(false);
@@ -557,21 +583,26 @@ Your Partner in managing Vitamin D Deficiency
         }
 
         const doctor = campData.doctors;
-        const patientsData = patients.length > 0 ? patients : await fetchCampPatients(campId);
+        const patientsData = (
+          patients.length > 0 ? patients : await fetchCampPatients(campId)
+        ) as unknown as Patient[];
 
         const total = patientsData.length;
-        const adequate = patientsData.filter((p) => p.risk_level === "Adequate").length;
-        const inadequate = patientsData.filter((p) => p.risk_level === "Inadequate").length;
+        const nonNeuropathic = patientsData.filter((p) => p.risk_level === "Non-Neuropathic").length;
+        const neuropathic = patientsData.filter((p) => p.risk_level === "Neuropathic").length;
 
-        const message = generateDoctorWhatsAppMessage(
-          doctor.name,
-          doctor.clinic_name,
-          doctor.city,
-          campData.camp_date,
-          total,
-          adequate,
-          inadequate
-        );
+        const message = `
+Dear Dr. ${doctor.name},
+
+Please find below the summary of today’s Neuropathy Screening Camp conducted at ${doctor.clinic_name || "your clinic"}${doctor.city ? `, ${doctor.city}` : ""}:
+
+• Total patients screened: ${total}
+• Patients with Neuropathic symptoms: ${neuropathic}
+• Patients with Non-Neuropathic symptoms: ${nonNeuropathic}
+
+Thank you for your kind cooperation and for partnering with Pulse Pharmaceuticals in this important public health initiative.
+Team Pulse Pharmaceuticals
+`.trim();
 
         const phone = doctor.whatsapp_number || doctor.phone;
         sendWhatsAppMessage(phone, message);
@@ -595,47 +626,29 @@ Your Partner in managing Vitamin D Deficiency
   );
 
   const printWithRawBT = useCallback((patient: Patient) => {
-    console.log("Printing patient:", patient);
-    const comorbidities: string[] = [];
-
-    if (patient.diabetes) comorbidities.push("• Diabetes");
-    if (patient.hypertension) comorbidities.push("• Hypertension");
-    if (patient.hypothyroidism) comorbidities.push("• Hypothyroidism");
-    if (patient.hyperthyroidism) comorbidities.push("• Hyperthyroidism");
-    if (patient.pcos) comorbidities.push("• PCOS");
-    if (patient.other_comorbidity) comorbidities.push(`• ${patient.other_comorbidity}`);
-
-    const comorbidityText = comorbidities.length ? comorbidities.join("\n") : "• None";
-
-    const feet = patient.height_feet ?? 0;
-    const inches = patient.height_inches ?? 0;
-    const weight = patient.weight_kg ?? 0;
-    const bmi = patient.bmi !== null && patient.bmi !== undefined
-      ? (Math.round(patient.bmi * 10) / 10).toString()
-      : "N/A";
-    const total = patient.total_score ?? 0;
-    const risk = patient.risk_level ?? "N/A";
+    const name = patient.patient_name || patient.initials || "N/A";
+    const hba1c =
+      patient.hba1c !== null && patient.hba1c !== undefined && !isNaN(Number(patient.hba1c))
+        ? `${Number(patient.hba1c)} %`
+        : "N/A";
+    const score = patient.total_score ?? 0;
+    const interpretation = patient.risk_level ?? "N/A";
 
     const printable = `
 --------------------------
- Vitamin D Assessment
+ Neuropathy Symptom Score
 --------------------------
-Patient: ${patient.initials}
-Age: ${patient.age}   Gender: ${patient.gender}
-Height: ${feet}'${inches}"
-Weight: ${weight}kg
-BMI: ${bmi}
+Patient: ${name}
+Age: ${patient.age}
+HbA1c: ${hba1c}
 
-Comorbidities:
-${comorbidityText}
-
-Total Score: ${total}
-Risk Level: ${risk}
+NSS Score: ${score}
+Interpretation: ${interpretation}
 
 --------------------------
-ADEQUACY GUIDE:
-< 5   → Adequate
-≥ 5   → Inadequate
+GUIDE:
+0 - 2  → Non-Neuropathic
+3 & above → Neuropathic
 --------------------------
 This is a screening test 
 and not a substitute for
@@ -663,22 +676,26 @@ appropriate treatment.
     setEditMode(true);
     setEditingPatientId(patient.id);
 
+    let responses: Record<string, string> = {};
+    if (patient.questionnaire_responses) {
+      if (typeof patient.questionnaire_responses === "object") {
+        responses = patient.questionnaire_responses;
+      } else {
+        try {
+          responses = JSON.parse(patient.questionnaire_responses);
+        } catch {
+          responses = {};
+        }
+      }
+    }
+
     setFormData({
-      initials: patient.initials || "",
+      ...EMPTY_FORM,
+      patient_name: patient.patient_name || patient.initials || "",
       age: patient.age?.toString() || "",
-      gender: patient.gender || "",
-      height_feet: patient.height_feet?.toString() || "",
-      height_inches: patient.height_inches?.toString() || "",
-      weight_kg: patient.weight_kg?.toString() || "",
-      diabetes: patient.diabetes,
-      hypertension: patient.hypertension,
-      hypothyroidism: patient.hypothyroidism,
-      hyperthyroidism: patient.hyperthyroidism,
-      pcos: patient.pcos,
-      other_comorbidity: patient.other_comorbidity || "",
-      ...(typeof patient.questionnaire_responses === "object"
-        ? patient.questionnaire_responses
-        : {}),
+      hba1c:
+        patient.hba1c !== null && patient.hba1c !== undefined ? String(patient.hba1c) : "",
+      ...responses,
     });
   }, []);
 
@@ -692,6 +709,8 @@ appropriate treatment.
       </div>
     );
   }
+
+  const symptomsPresent = hasAnySymptom(formData);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary to-background overflow-y-auto scroll-smooth">
@@ -713,7 +732,12 @@ appropriate treatment.
               </p>
             </div>
             <Button
-              onClick={() => setShowAddForm(true)}
+              onClick={() => {
+                setFormData(EMPTY_FORM);
+                setEditMode(false);
+                setEditingPatientId(null);
+                setShowAddForm(true);
+              }}
               className="bg-gradient-to-r from-primary to-medical-teal hover:from-primary/90 hover:to-medical-teal/90"
             >
               <Plus className="h-4 w-4 mr-2" />
@@ -733,7 +757,7 @@ appropriate treatment.
                   </CardTitle>
 
                   <CardDescription>
-                    Patient {patients.length + 1}
+                    {editMode ? "Neuropathy Symptom Score (NSS)" : `Patient ${patients.length + 1} – Neuropathy Symptom Score (NSS)`}
                   </CardDescription>
                   {editMode && (
                     <p className="text-sm text-yellow-600 mt-2">
@@ -741,620 +765,112 @@ appropriate treatment.
                     </p>
                   )}
                 </div>
-                <div className="flex items-center space-x-2">
-                  <Languages className="h-4 w-4 text-muted-foreground" />
-                  <Select value={language} onValueChange={(v) => setLanguage(v as Language)}>
-                    <SelectTrigger className="w-[140px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="english">English</SelectItem>
-                      <SelectItem value="hindi">हिंदी</SelectItem>
-                      <SelectItem value="telugu">తెలుగు</SelectItem>
-                      <SelectItem value="tamil">தமிழ்</SelectItem>
-                      <SelectItem value="bhojpuri">भोजपुरी</SelectItem>
-                      <SelectItem value="bengali">বাংলা</SelectItem>
-                      <SelectItem value="marathi">मराठी</SelectItem>
-                      <SelectItem value="kannada">ಕನ್ನಡ</SelectItem>
-                      <SelectItem value="gujarati">ગુજરાતી</SelectItem>
-                      <SelectItem value="malayalam">മലയാളം</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleAddPatient} className="space-y-6">
                 <Accordion type="single" collapsible defaultValue="sectionA">
-                  {/* Section A */}
+                  {/* Section A – Patient details */}
                   <AccordionItem value="sectionA">
-                    <AccordionTrigger>
-                      {formTranslations[language].sectionA}
-                    </AccordionTrigger>
+                    <AccordionTrigger>Section A – Patient Details</AccordionTrigger>
                     <AccordionContent>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                         <div className="space-y-2">
-                          <Label>{formTranslations[language].patientInitials} *</Label>
+                          <Label>Name of the Patient *</Label>
                           <Input
-                            placeholder="Please don't enter full name"
-                            value={formData.initials}
-                            onChange={(e) =>
-                              setFormData({ ...formData, initials: e.target.value })
-                            }
+                            placeholder="Enter patient name"
+                            value={formData.patient_name}
+                            onChange={(e) => setField("patient_name", e.target.value)}
                             required
                           />
                         </div>
 
                         <div className="space-y-2">
-                          <Label>{formTranslations[language].age} *</Label>
+                          <Label>Age (years) *</Label>
                           <Input
                             type="number"
                             min="1"
                             max="120"
                             value={formData.age}
-                            onChange={(e) =>
-                              setFormData({ ...formData, age: e.target.value })
-                            }
+                            onChange={(e) => setField("age", e.target.value)}
                             required
                           />
                         </div>
 
                         <div className="space-y-2">
-                          <Label>{formTranslations[language].gender} *</Label>
-                          <Select
-                            value={formData.gender}
-                            onValueChange={(value) =>
-                              setFormData({ ...formData, gender: value })
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue
-                                placeholder={formTranslations[language].selectGender}
-                              />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Male">
-                                {formTranslations[language].male}
-                              </SelectItem>
-                              <SelectItem value="Female">
-                                {formTranslations[language].female}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                        <div className="space-y-2">
-                          <Label>{formTranslations[language].heightFeet} *</Label>
+                          <Label>HbA1c (%) *</Label>
                           <Input
                             type="number"
                             min="3"
-                            max="6"
-                            value={formData.height_feet}
-                            onChange={(e) =>
-                              setFormData({ ...formData, height_feet: e.target.value })
-                            }
-                            required
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>{formTranslations[language].heightInches} *</Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            max="11"
-                            value={formData.height_inches}
-                            onChange={(e) =>
-                              setFormData({ ...formData, height_inches: e.target.value })
-                            }
-                            required
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>{formTranslations[language].weightKg} *</Label>
-                          <Input
-                            type="number"
-                            min="20"
-                            max="300"
+                            max="20"
                             step="0.1"
-                            value={formData.weight_kg}
-                            onChange={(e) =>
-                              setFormData({ ...formData, weight_kg: e.target.value })
-                            }
+                            value={formData.hba1c}
+                            onChange={(e) => setField("hba1c", e.target.value)}
                             required
-                          />
-                        </div>
-                      </div>
-
-                      {/* Co-morbidities */}
-                      <div className="mt-4">
-                        <Label className="text-base font-semibold">
-                          {formTranslations[language].comorbiditiesLabel}
-                        </Label>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-                          {[
-                            { key: "diabetes", label: formTranslations[language].diabetes },
-                            {
-                              key: "hypertension",
-                              label: formTranslations[language].hypertension,
-                            },
-                            {
-                              key: "hypothyroidism",
-                              label: formTranslations[language].hypothyroidism,
-                            },
-                            {
-                              key: "hyperthyroidism",
-                              label: formTranslations[language].hyperthyroidism,
-                            },
-                            { key: "pcos", label: formTranslations[language].pcos },
-                          ].map(({ key, label }) => (
-                            <div key={key} className="flex items-center space-x-2">
-                              <Checkbox
-                                id={key}
-                                checked={formData[key as keyof typeof formData] as boolean}
-                                onCheckedChange={(checked) =>
-                                  setFormData({
-                                    ...formData,
-                                    [key]: checked as boolean,
-                                  })
-                                }
-                              />
-                              <Label htmlFor={key}>{label}</Label>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="mt-4 space-y-2">
-                          <Label>{formTranslations[language].otherComorbidityLabel}</Label>
-                          <Input
-                            placeholder="Specify any other condition"
-                            value={formData.other_comorbidity}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                other_comorbidity: e.target.value,
-                              })
-                            }
                           />
                         </div>
                       </div>
                     </AccordionContent>
                   </AccordionItem>
 
-                  {/* Section B */}
+                  {/* Section B – NSS questions */}
                   <AccordionItem value="sectionB">
-                    <AccordionTrigger>
-                      {formTranslations[language].sectionB}
-                    </AccordionTrigger>
+                    <AccordionTrigger>Section B – Symptom Questions</AccordionTrigger>
                     <AccordionContent>
                       <div className="mt-4 space-y-4">
-                        {/* Q3: Skin Tone */}
-                        <div>
-                          <Label>
-                            {typeof formTranslations[language].questions.q3 === "string"
-                              ? formTranslations[language].questions.q3
-                              : formTranslations[language].questions.q3.text}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q3}
-                            onValueChange={(v) => setFormData({ ...formData, q3: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="dark">
-                                {formTranslations[language].dark}
-                              </SelectItem>
-                              <SelectItem value="wheatish">
-                                {formTranslations[language].wheatish}
-                              </SelectItem>
-                              <SelectItem value="fair">
-                                {formTranslations[language].fair}
-                              </SelectItem>
-                              <SelectItem value="very_fair">
-                                {formTranslations[language].veryFair}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        <p className="text-sm font-semibold text-foreground">
+                          1. Symptoms in foot / lower leg
+                        </p>
 
-                        {/* Q4: Clothing Style */}
-                        <div>
-                          <Label>
-                            {typeof formTranslations[language].questions.q4 === "string"
-                              ? formTranslations[language].questions.q4
-                              : formTranslations[language].questions.q4.text}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q4}
-                            onValueChange={(v) => setFormData({ ...formData, q4: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="shorts">
-                                {formTranslations[language].shorts}
-                              </SelectItem>
-                              <SelectItem value="partial">
-                                {formTranslations[language].partialCoverage}
-                              </SelectItem>
-                              <SelectItem value="full">
-                                {formTranslations[language].fullCoverage}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        {SYMPTOM_QUESTIONS.map((q) => (
+                          <QuestionSelect
+                            key={q.key}
+                            label={q.label}
+                            value={formData[q.key]}
+                            options={YES_NO}
+                            onChange={(v) => setField(q.key, v)}
+                          />
+                        ))}
 
-                        {/* Q5: Time Outdoors */}
-                        <div>
-                          <Label>
-                            {typeof formTranslations[language].questions.q5 === "string"
-                              ? formTranslations[language].questions.q5
-                              : formTranslations[language].questions.q5.text}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q5}
-                            onValueChange={(v) => setFormData({ ...formData, q5: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="negligible">
-                                {formTranslations[language].negligible}
-                              </SelectItem>
-                              <SelectItem value="less_30">
-                                {formTranslations[language].less30Min}
-                              </SelectItem>
-                              <SelectItem value="more_30">
-                                {formTranslations[language].more30Min}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        {symptomsPresent && (
+                          <>
+                            <p className="text-sm font-semibold text-foreground pt-2">
+                              2. Where are the symptoms?
+                            </p>
+                            <QuestionSelect
+                              label="Localization of symptoms"
+                              value={formData.location}
+                              options={LOCATION_OPTIONS}
+                              onChange={(v) => setField("location", v)}
+                            />
 
-                        {/* Q6: Sunscreen */}
-                        <div>
-                          <Label>
-                            {formTranslations[language].questions.q6}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q6}
-                            onValueChange={(v) => setFormData({ ...formData, q6: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="yes">
-                                {formTranslations[language].yes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                            <p className="text-sm font-semibold text-foreground pt-2">
+                              3. When do the symptoms get worse?
+                            </p>
+                            <QuestionSelect
+                              label="Timing of symptoms"
+                              value={formData.timing}
+                              options={TIMING_OPTIONS}
+                              onChange={(v) => setField("timing", v)}
+                            />
+                            <QuestionSelect
+                              label="Is the patient awakened from sleep by the symptoms?"
+                              value={formData.wakes_from_sleep}
+                              options={YES_NO}
+                              onChange={(v) => setField("wakes_from_sleep", v)}
+                            />
 
-                        {/* Q7: Pollution */}
-                        <div>
-                          <Label>
-                            {formTranslations[language].questions.q7}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q7}
-                            onValueChange={(v) => setFormData({ ...formData, q7: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="yes">
-                                {formTranslations[language].yes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Q8: Animal Foods */}
-                        <div>
-                          <Label>
-                            {typeof formTranslations[language].questions.q8 === "string"
-                              ? formTranslations[language].questions.q8
-                              : formTranslations[language].questions.q8.text}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q8}
-                            onValueChange={(v) => setFormData({ ...formData, q8: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="no_intake">
-                                {formTranslations[language].noIntake}
-                              </SelectItem>
-                              <SelectItem value="occasional">
-                                {formTranslations[language].occasionalIntake}
-                              </SelectItem>
-                              <SelectItem value="regular">
-                                {formTranslations[language].regularIntake}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Q9–Q12: Yes/No */}
-                        <div>
-                          <Label>
-                            {formTranslations[language].questions.q9}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q9}
-                            onValueChange={(v) => setFormData({ ...formData, q9: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="yes">
-                                {formTranslations[language].yes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div>
-                          <Label>
-                            {formTranslations[language].questions.q10}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q10}
-                            onValueChange={(v) => setFormData({ ...formData, q10: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="yes">
-                                {formTranslations[language].yes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div>
-                          <Label>
-                            {formTranslations[language].questions.q11}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q11}
-                            onValueChange={(v) => setFormData({ ...formData, q11: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="yes">
-                                {formTranslations[language].yes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div>
-                          <Label>
-                            {formTranslations[language].questions.q12}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q12}
-                            onValueChange={(v) => setFormData({ ...formData, q12: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="yes">
-                                {formTranslations[language].yes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Q13–Q17: Often/Sometimes/No */}
-                        <div>
-                          <Label>
-                            {typeof formTranslations[language].questions.q13 === "string"
-                              ? formTranslations[language].questions.q13
-                              : formTranslations[language].questions.q13.text}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q13}
-                            onValueChange={(v) => setFormData({ ...formData, q13: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="often">
-                                {formTranslations[language].often}
-                              </SelectItem>
-                              <SelectItem value="sometimes">
-                                {formTranslations[language].sometimes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div>
-                          <Label>
-                            {typeof formTranslations[language].questions.q14 === "string"
-                              ? formTranslations[language].questions.q14
-                              : formTranslations[language].questions.q14.text}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q14}
-                            onValueChange={(v) => setFormData({ ...formData, q14: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="often">
-                                {formTranslations[language].often}
-                              </SelectItem>
-                              <SelectItem value="sometimes">
-                                {formTranslations[language].sometimes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div>
-                          <Label>
-                            {typeof formTranslations[language].questions.q15 === "string"
-                              ? formTranslations[language].questions.q15
-                              : formTranslations[language].questions.q15.text}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q15}
-                            onValueChange={(v) => setFormData({ ...formData, q15: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="often">
-                                {formTranslations[language].often}
-                              </SelectItem>
-                              <SelectItem value="sometimes">
-                                {formTranslations[language].sometimes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div>
-                          <Label>
-                            {typeof formTranslations[language].questions.q16 === "string"
-                              ? formTranslations[language].questions.q16
-                              : formTranslations[language].questions.q16.text}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q16}
-                            onValueChange={(v) => setFormData({ ...formData, q16: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="often">
-                                {formTranslations[language].often}
-                              </SelectItem>
-                              <SelectItem value="sometimes">
-                                {formTranslations[language].sometimes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div>
-                          <Label>
-                            {typeof formTranslations[language].questions.q17 === "string"
-                              ? formTranslations[language].questions.q17
-                              : formTranslations[language].questions.q17.text}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q17}
-                            onValueChange={(v) => setFormData({ ...formData, q17: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="often">
-                                {formTranslations[language].often}
-                              </SelectItem>
-                              <SelectItem value="sometimes">
-                                {formTranslations[language].sometimes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Q18: Vitamin D Supplementation */}
-                        <div>
-                          <Label>
-                            {formTranslations[language].questions.q18}
-                            {" *"}
-                          </Label>
-                          <Select
-                            value={formData.q18}
-                            onValueChange={(v) => setFormData({ ...formData, q18: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder={formTranslations[language].select} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="yes">
-                                {formTranslations[language].yes}
-                              </SelectItem>
-                              <SelectItem value="no">
-                                {formTranslations[language].no}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                            <p className="text-sm font-semibold text-foreground pt-2">
+                              4. When do the symptoms improve?
+                            </p>
+                            <QuestionSelect
+                              label="Symptom improvement when"
+                              value={formData.improvement}
+                              options={IMPROVE_OPTIONS}
+                              onChange={(v) => setField("improvement", v)}
+                            />
+                          </>
+                        )}
                       </div>
                     </AccordionContent>
                   </AccordionItem>
@@ -1367,14 +883,15 @@ appropriate treatment.
                     onClick={() => {
                       setEditMode(false);
                       setEditingPatientId(null);
+                      setFormData(EMPTY_FORM);
                       setShowAddForm(false);
                     }}
                   >
-                    {formTranslations[language].cancel}
+                    Cancel
                   </Button>
                   <Button type="submit">
                     <Calculator className="h-4 w-4 mr-2" />
-                    {editMode ? "Save Changes" : formTranslations[language].calculate}
+                    {editMode ? "Save Changes" : "Calculate Score"}
                   </Button>
                 </div>
               </form>
@@ -1408,9 +925,9 @@ appropriate treatment.
                       <CardTitle className="text-lg">
                         Patient {patient.patient_number}
                       </CardTitle>
-                      <CardDescription>{patient.initials}</CardDescription>
+                      <CardDescription>{getPatientName(patient)}</CardDescription>
                     </div>
-                    <Badge variant={getRiskBadgeVariant(patient.risk_level)}>
+                    <Badge variant={getBadgeVariant(patient.risk_level)}>
                       {patient.risk_level}
                     </Badge>
                   </div>
@@ -1422,66 +939,22 @@ appropriate treatment.
                       <span className="ml-2 font-medium">{patient.age}</span>
                     </div>
                     <div>
-                      <span className="text-muted-foreground">Gender:</span>
-                      <span className="ml-2 font-medium">{patient.gender}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">BMI:</span>
+                      <span className="text-muted-foreground">HbA1c:</span>
                       <span className="ml-2 font-medium">
-                        {!isNaN(Number(patient.bmi)) && patient.bmi !== null
-                          ? (Math.round(Number(patient.bmi) * 10) / 10).toString()
+                        {patient.hba1c !== null &&
+                        patient.hba1c !== undefined &&
+                        !isNaN(Number(patient.hba1c))
+                          ? `${Number(patient.hba1c)} %`
                           : "N/A"}
                       </span>
                     </div>
                     <div>
-                      <span className="text-muted-foreground">Score:</span>
+                      <span className="text-muted-foreground">NSS Score:</span>
                       <span className="ml-2 font-bold text-primary">
-                        {patient.total_score}
+                        {patient.total_score} / {NSS_MAX_SCORE}
                       </span>
                     </div>
                   </div>
-
-                  {(patient.diabetes ||
-                    patient.hypertension ||
-                    patient.hypothyroidism ||
-                    patient.hyperthyroidism ||
-                    patient.other_comorbidity) && (
-                      <div className="mt-3 pt-3 border-t">
-                        <p className="text-xs text-muted-foreground mb-1">Comorbidities:</p>
-                        <div className="flex flex-wrap gap-1">
-                          {patient.diabetes && (
-                            <Badge variant="outline" className="text-xs">
-                              Diabetes
-                            </Badge>
-                          )}
-                          {patient.hypertension && (
-                            <Badge variant="outline" className="text-xs">
-                              Hypertension
-                            </Badge>
-                          )}
-                          {patient.hypothyroidism && (
-                            <Badge variant="outline" className="text-xs">
-                              Hypothyroidism
-                            </Badge>
-                          )}
-                          {patient.hyperthyroidism && (
-                            <Badge variant="outline" className="text-xs">
-                              Hyperthyroidism
-                            </Badge>
-                          )}
-                          {patient.pcos && (
-                            <Badge variant="outline" className="text-xs">
-                              PCOS
-                            </Badge>
-                          )}
-                          {patient.other_comorbidity && (
-                            <Badge variant="outline" className="text-xs">
-                              {patient.other_comorbidity}
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                    )}
 
                   <div className="mt-3 pt-3 border-t">
                     <Button
@@ -1528,15 +1001,15 @@ appropriate treatment.
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center">
                 <div>
-                  <p className="text-sm text-muted-foreground">Adequate</p>
+                  <p className="text-sm text-muted-foreground">Non-Neuropathic</p>
                   <p className="text-xl font-bold text-green-600">
-                    {patients.filter((p) => p.risk_level === "Adequate").length}
+                    {patients.filter((p) => p.risk_level === "Non-Neuropathic").length}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Inadequate</p>
+                  <p className="text-sm text-muted-foreground">Neuropathic</p>
                   <p className="text-xl font-bold text-red-600">
-                    {patients.filter((p) => p.risk_level === "Inadequate").length}
+                    {patients.filter((p) => p.risk_level === "Neuropathic").length}
                   </p>
                 </div>
               </div>
@@ -1569,14 +1042,16 @@ appropriate treatment.
             </div>
 
             <div>
-              <Label>No. of Patients with Adequate Vitamin D Levels</Label>
+              <Label>No. of Non-Neuropathic Patients</Label>
               <Input value={summaryForm.adequate_patients} readOnly />
             </div>
 
             <div>
-              <Label>No. of Patients with Inadequate Vitamin D Levels</Label>
+              <Label>No. of Neuropathic Patients</Label>
               <Input value={summaryForm.inadequate_patients} readOnly />
             </div>
+
+            {/* ---- Hidden for now: sales fields (backend receives 0) ----
 
             <div className="pt-3 border-t">
               <Label>No. of Rx Generated</Label>
@@ -1683,6 +1158,8 @@ appropriate treatment.
                 </div>
               )}
             </div>
+
+            ---- end hidden sales fields ---- */}
           </div>
 
           <DialogFooter className="mt-6 flex justify-center">
