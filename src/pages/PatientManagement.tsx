@@ -10,13 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
@@ -46,42 +40,35 @@ import {
 const NSS_MAX_SCORE = 10;
 const NEUROPATHIC_CUTOFF = 3; // score >= 3 => Neuropathic
 
-type Option = { value: string; label: string };
-
-const YES_NO: Option[] = [
-  { value: "yes", label: "Yes" },
-  { value: "no", label: "No" },
-];
-
 // Group 1 – Symptomatology (Foot / Lower Leg)
-const SYMPTOM_QUESTIONS: { key: string; label: string }[] = [
-  { key: "burning", label: "Do you have burning in your feet / lower legs?" },
-  { key: "numbness", label: "Do you have numbness in your feet / lower legs?" },
-  { key: "paraesthesia", label: "Do you have paraesthesia (tingling, pins and needles)?" },
-  { key: "weakness", label: "Do you have a feeling of weakness (fatigue, exhaustion)?" },
-  { key: "cramps", label: "Do you have cramps?" },
-  { key: "pain", label: "Do you have pain?" },
+const SYMPTOM_QUESTIONS: { key: string; label: string; points: number }[] = [
+  { key: "burning", label: "Burning", points: 2 },
+  { key: "numbness", label: "Numbness", points: 2 },
+  { key: "paraesthesia", label: "Paraesthesia", points: 2 },
+  { key: "weakness", label: "Feeling of weakness (fatigue, exhaustion)", points: 1 },
+  { key: "cramps", label: "Cramps", points: 1 },
+  { key: "pain", label: "Pain", points: 1 },
 ];
 
 // Group 2 – Localization
-const LOCATION_OPTIONS: Option[] = [
-  { value: "feet", label: "Feet" },
-  { value: "lower_leg", label: "Lower leg" },
-  { value: "elsewhere", label: "Elsewhere" },
+const LOCATION_OPTIONS = [
+  { value: "feet", label: "Feet", points: 2 },
+  { value: "lower_leg", label: "Lower leg", points: 1 },
+  { value: "elsewhere", label: "Elsewhere", points: 0 },
 ];
 
 // Group 3 – Exacerbation
-const TIMING_OPTIONS: Option[] = [
-  { value: "night", label: "Present at night" },
-  { value: "day_night", label: "Present during day and night" },
-  { value: "day_only", label: "Only present during the day" },
+const TIMING_OPTIONS = [
+  { value: "night", label: "Present at night", points: 2 },
+  { value: "day_night", label: "Present during day and night", points: 1 },
+  { value: "day_only", label: "Only present during the day", points: 0 },
 ];
 
 // Group 4 – Symptom improvement when
-const IMPROVE_OPTIONS: Option[] = [
-  { value: "walking", label: "Walking" },
-  { value: "standing", label: "Standing" },
-  { value: "resting", label: "Sitting or lying down" },
+const IMPROVE_OPTIONS = [
+  { value: "walking", label: "Walking", points: 2 },
+  { value: "standing", label: "Standing", points: 1 },
+  { value: "resting", label: "Sitting or lying down", points: 0 },
 ];
 
 const HIGH_SYMPTOMS = ["burning", "numbness", "paraesthesia"]; // 2 points
@@ -147,34 +134,117 @@ const getBadgeVariant = (interpretation: string | null) =>
   interpretation === "Neuropathic" ? "destructive" : "default";
 
 /* ------------------------------------------------------------------ */
-/*  Small reusable select                                              */
+/*  Sheet-style checkbox components                                    */
 /* ------------------------------------------------------------------ */
 
-const QuestionSelect = ({
+const GROUP_GRID =
+  "grid grid-cols-[1fr_52px_52px_36px] sm:grid-cols-[1fr_80px_80px_60px] items-center gap-2";
+const CHOICE_GRID =
+  "grid grid-cols-[1fr_72px_36px] sm:grid-cols-[1fr_110px_60px] items-center gap-2";
+
+// Wrapper with a numbered, shaded header (like the groups on the sheet)
+const GroupBox = ({
+  number,
+  title,
+  children,
+}: {
+  number: number;
+  title: string;
+  children: React.ReactNode;
+}) => (
+  <div className="border rounded-lg overflow-hidden bg-card">
+    <div className="flex items-center gap-3 bg-muted px-3 py-2 border-b">
+      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
+        {number}
+      </span>
+      <span className="text-sm font-bold uppercase tracking-wide text-foreground">
+        {title}
+      </span>
+    </div>
+    {children}
+  </div>
+);
+
+// Header row for Yes / No groups
+const YesNoHeader = () => (
+  <div className={`${GROUP_GRID} px-3 py-1.5 border-b bg-muted/40 text-xs font-semibold text-muted-foreground`}>
+    <div>Symptom</div>
+    <div className="text-center">Yes</div>
+    <div className="text-center">No</div>
+    <div className="text-center">Pts</div>
+  </div>
+);
+
+// Row with Yes + No checkboxes (mutually exclusive)
+const YesNoRow = ({
+  no,
   label,
+  points,
   value,
-  options,
   onChange,
 }: {
+  no: number;
   label: string;
+  points: number;
   value: string;
-  options: Option[];
   onChange: (v: string) => void;
 }) => (
-  <div>
-    <Label>{label} *</Label>
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger>
-        <SelectValue placeholder="Select" />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>
-            {o.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+  <div className={`${GROUP_GRID} px-3 py-2 border-b last:border-b-0`}>
+    <div className="text-sm text-foreground">
+      <span className="text-muted-foreground mr-2">{no}.</span>
+      {label}
+    </div>
+    <label className="flex items-center justify-center gap-1 cursor-pointer">
+      <Checkbox
+        checked={value === "yes"}
+        onCheckedChange={(c) => onChange(c ? "yes" : "")}
+      />
+      <span className="text-xs text-muted-foreground">{points}</span>
+    </label>
+    <label className="flex items-center justify-center gap-1 cursor-pointer">
+      <Checkbox
+        checked={value === "no"}
+        onCheckedChange={(c) => onChange(c ? "no" : "")}
+      />
+      <span className="text-xs text-muted-foreground">0</span>
+    </label>
+    <div className="text-center text-sm font-bold text-foreground">{points}</div>
+  </div>
+);
+
+// Header row for "select one" groups
+const ChoiceHeader = () => (
+  <div className={`${CHOICE_GRID} px-3 py-1.5 border-b bg-muted/40 text-xs font-semibold text-muted-foreground`}>
+    <div>Select one</div>
+    <div className="text-center">Yes</div>
+    <div className="text-center">Pts</div>
+  </div>
+);
+
+// Row with a single checkbox (only one row per group can be ticked)
+const ChoiceRow = ({
+  no,
+  label,
+  points,
+  checked,
+  onToggle,
+}: {
+  no: number;
+  label: string;
+  points: number;
+  checked: boolean;
+  onToggle: (checked: boolean) => void;
+}) => (
+  <div className={`${CHOICE_GRID} px-3 py-2 border-b last:border-b-0`}>
+    <div className="text-sm text-foreground">
+      <span className="text-muted-foreground mr-2">{no}.</span>
+      {label}
+    </div>
+    <label className="flex items-center justify-center gap-1 cursor-pointer">
+      <Checkbox checked={checked} onCheckedChange={(c) => onToggle(c === true)} />
+      <span className="text-xs text-muted-foreground">{points}</span>
+    </label>
+    <div className="text-center text-sm font-bold text-foreground">{points}</div>
   </div>
 );
 
@@ -711,6 +781,8 @@ appropriate treatment.
   }
 
   const symptomsPresent = hasAnySymptom(formData);
+  const liveScore = calculateNssScore(formData);
+  const liveInterpretation = getNssInterpretation(liveScore);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary to-background overflow-y-auto scroll-smooth">
@@ -813,64 +885,112 @@ appropriate treatment.
                     </AccordionContent>
                   </AccordionItem>
 
-                  {/* Section B – NSS questions */}
+                  {/* Section B – NSS questions (sheet-style checkboxes) */}
                   <AccordionItem value="sectionB">
                     <AccordionTrigger>Section B – Symptom Questions</AccordionTrigger>
                     <AccordionContent>
                       <div className="mt-4 space-y-4">
-                        <p className="text-sm font-semibold text-foreground">
-                          1. Symptoms in foot / lower leg
-                        </p>
+                        {/* 1. Symptomatology */}
+                        <GroupBox number={1} title="Symptomatology: Foot / Lower Leg">
+                          <YesNoHeader />
+                          {SYMPTOM_QUESTIONS.map((q, i) => (
+                            <YesNoRow
+                              key={q.key}
+                              no={i + 1}
+                              label={q.label}
+                              points={q.points}
+                              value={formData[q.key]}
+                              onChange={(v) => setField(q.key, v)}
+                            />
+                          ))}
+                          <p className="px-3 py-2 text-xs text-muted-foreground bg-muted/30">
+                            Answer every symptom. Only the highest-scoring symptom present counts
+                            (2 points if any of items 1–3 is Yes, otherwise 1 point if any of
+                            items 4–6 is Yes).
+                          </p>
+                        </GroupBox>
 
-                        {SYMPTOM_QUESTIONS.map((q) => (
-                          <QuestionSelect
-                            key={q.key}
-                            label={q.label}
-                            value={formData[q.key]}
-                            options={YES_NO}
-                            onChange={(v) => setField(q.key, v)}
-                          />
-                        ))}
+                        {!symptomsPresent && (
+                          <p className="text-xs text-muted-foreground px-1">
+                            Tick Yes for at least one symptom to answer the remaining groups.
+                            If all symptoms are No, the score is 0.
+                          </p>
+                        )}
 
                         {symptomsPresent && (
                           <>
-                            <p className="text-sm font-semibold text-foreground pt-2">
-                              2. Where are the symptoms?
-                            </p>
-                            <QuestionSelect
-                              label="Localization of symptoms"
-                              value={formData.location}
-                              options={LOCATION_OPTIONS}
-                              onChange={(v) => setField("location", v)}
-                            />
+                            {/* 2. Localization */}
+                            <GroupBox number={2} title="Localization">
+                              <ChoiceHeader />
+                              {LOCATION_OPTIONS.map((o, i) => (
+                                <ChoiceRow
+                                  key={o.value}
+                                  no={7 + i}
+                                  label={o.label}
+                                  points={o.points}
+                                  checked={formData.location === o.value}
+                                  onToggle={(c) => setField("location", c ? o.value : "")}
+                                />
+                              ))}
+                            </GroupBox>
 
-                            <p className="text-sm font-semibold text-foreground pt-2">
-                              3. When do the symptoms get worse?
-                            </p>
-                            <QuestionSelect
-                              label="Timing of symptoms"
-                              value={formData.timing}
-                              options={TIMING_OPTIONS}
-                              onChange={(v) => setField("timing", v)}
-                            />
-                            <QuestionSelect
-                              label="Is the patient awakened from sleep by the symptoms?"
-                              value={formData.wakes_from_sleep}
-                              options={YES_NO}
-                              onChange={(v) => setField("wakes_from_sleep", v)}
-                            />
+                            {/* 3. Exacerbation */}
+                            <GroupBox number={3} title="Exacerbation">
+                              <ChoiceHeader />
+                              {TIMING_OPTIONS.map((o, i) => (
+                                <ChoiceRow
+                                  key={o.value}
+                                  no={10 + i}
+                                  label={o.label}
+                                  points={o.points}
+                                  checked={formData.timing === o.value}
+                                  onToggle={(c) => setField("timing", c ? o.value : "")}
+                                />
+                              ))}
+                              <YesNoHeader />
+                              <YesNoRow
+                                no={13}
+                                label="Patient is awakened from sleep by the symptoms"
+                                points={1}
+                                value={formData.wakes_from_sleep}
+                                onChange={(v) => setField("wakes_from_sleep", v)}
+                              />
+                            </GroupBox>
 
-                            <p className="text-sm font-semibold text-foreground pt-2">
-                              4. When do the symptoms improve?
-                            </p>
-                            <QuestionSelect
-                              label="Symptom improvement when"
-                              value={formData.improvement}
-                              options={IMPROVE_OPTIONS}
-                              onChange={(v) => setField("improvement", v)}
-                            />
+                            {/* 4. Symptom improvement */}
+                            <GroupBox number={4} title="Symptom Improvement When">
+                              <ChoiceHeader />
+                              {IMPROVE_OPTIONS.map((o, i) => (
+                                <ChoiceRow
+                                  key={o.value}
+                                  no={14 + i}
+                                  label={o.label}
+                                  points={o.points}
+                                  checked={formData.improvement === o.value}
+                                  onToggle={(c) => setField("improvement", c ? o.value : "")}
+                                />
+                              ))}
+                            </GroupBox>
                           </>
                         )}
+
+                        {/* Live total, like the TOTAL NSS SCORE box on the sheet */}
+                        <div className="flex items-center justify-between rounded-lg border-2 border-primary/30 bg-primary/5 px-4 py-3">
+                          <div>
+                            <p className="text-sm font-bold uppercase tracking-wide text-foreground">
+                              Total NSS Score
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Updates as you answer (0 – {NSS_MAX_SCORE})
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-2xl font-bold text-primary">{liveScore}</p>
+                            <Badge variant={getBadgeVariant(liveInterpretation)}>
+                              {liveInterpretation}
+                            </Badge>
+                          </div>
+                        </div>
                       </div>
                     </AccordionContent>
                   </AccordionItem>
