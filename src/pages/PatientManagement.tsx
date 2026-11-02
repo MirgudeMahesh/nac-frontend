@@ -790,8 +790,10 @@ Interpretation: ${interpretation}
 
 --------------------------
 GUIDE:
-0 - 2  → Non-Neuropathic
-3 & above → Neuropathic
+0 - 2  → Non-Neuropathy
+3 - 4  → Mild Neuropathy
+5 - 6  → Moderate Neuropathy
+7 & above → Severe Neuropathy
 --------------------------
 This is a screening test 
 and not a substitute for

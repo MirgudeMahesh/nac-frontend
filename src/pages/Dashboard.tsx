@@ -344,7 +344,7 @@ const Dashboard = () => {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-foreground">
-                  Neuropathy Camp Dashboard
+                  Neuropathy Assessment Camp
                 </h1>
                 <p className="text-xs text-muted-foreground">
                   {user.email}
