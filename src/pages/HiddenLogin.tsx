@@ -47,7 +47,7 @@ const HiddenLogin = () => {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary to-background px-4">
       <div className="bg-card shadow-lg rounded-xl p-8 w-full max-w-md text-center space-y-6">
         <h1 className="text-2xl font-bold text-foreground">
-          Vitamin D Camp Login (Hidden)
+          Neuropathy Camp Login (Hidden)
         </h1>
         <p className="text-muted-foreground text-sm">
           Enter IMACX ID to generate an auto-login link.

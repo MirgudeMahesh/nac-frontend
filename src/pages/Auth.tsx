@@ -170,7 +170,7 @@ const Auth = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary to-background px-4">
       <div className="bg-card shadow-lg rounded-xl p-8 w-full max-w-md text-center space-y-6">
-        <h1 className="text-2xl font-bold">Vitamin D Camp Login</h1>
+        <h1 className="text-2xl font-bold">Neuropathy Camp Login</h1>
 
         {isLoading ? (
           <div className="space-y-3">

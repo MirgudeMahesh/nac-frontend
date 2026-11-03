@@ -323,13 +323,12 @@ Thank you for your consent to conduct Neuropathy symptom assessment Camp at your
         campDate
       ).toLocaleDateString()}.
 
-We will initiate screening patients for their risk of Vitamin D deficiency shortly.
+We will initiate screening patients for their risk of neuropathy.
 Once the camp concludes, we'll share a brief summary report highlighting the number of patients screened and key findings.
 
-Thank you for partnering with Pulse Pharmaceuticals in this mission to make India Vitamin D deficiency-free.
-
+Thank you for partnering with Pulse Pharmaceuticals for addressing Diabetic peripheral neuropathy for Indian patients
 Team Pulse Pharmaceuticals
-Your Partner in Vitamin D Management
+Your Partner in Neuropathy Symptom Assessment in T2DM Patients
 `.trim();
 
       window.open(

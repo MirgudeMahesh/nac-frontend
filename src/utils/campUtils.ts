@@ -300,7 +300,7 @@ export const generateDoctorWhatsAppMessage = (
   return `
 Dear Dr. ${doctorName},
 
-Please find below the summary of the Vitamin D Adequacy Screening Camp conducted at your clinic (${clinicName}, ${city}) on ${new Date(
+Please find below the summary of the Neuropathy Symptom Assessment Camp conducted at your clinic (${clinicName}, ${city}) on ${new Date(
     campDate
   ).toLocaleDateString()}.
 
@@ -309,15 +309,17 @@ Adequate: ${adequate}
 Inadequate: ${inadequate}
 
 ------------------------------
-ADEQUACY GUIDE:
-Score < 5   → Adequate
-Score ≥ 5   → Inadequate
+GUIDE:
+0 - 2  → Non-Neuropathy
+3 - 4  → Mild Neuropathy
+5 - 6  → Moderate Neuropathy
+7 & above → Severe Neuropathy
 ------------------------------
 
 We thank you for your kind support and continuous patronage.
 For any concerns, please contact 9000000000.
 
-— Vitamin D Awareness Team
+— Team Pulse Pharmaceuticals
   `.trim();
 };
 
